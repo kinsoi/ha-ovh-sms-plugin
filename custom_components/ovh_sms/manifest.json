@@ -1,0 +1,14 @@
+{
+  "domain": "ovh_sms",
+  "name": "OVH SMS",
+  "codeowners": ["@kinsoi"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/kinsoi/ha-ovh-sms-plugin",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/kinsoi/ha-ovh-sms-plugin/issues",
+  "loggers": ["ovh"],
+  "requirements": ["ovh>=1.1.0"],
+  "version": "1.1.1"
+}

@@ -1,0 +1,153 @@
+{
+  "selector": {
+    "init_section": {
+      "options": {
+        "credentials": "Identifiants API & expéditeur",
+        "rate_limit": "Paramètres de limitation de débit",
+        "test_sms": "Envoyer un SMS de test",
+        "documentation": "📖 Mode d'emploi"
+      }
+    },
+    "validation_action": {
+      "options": {
+        "retry": "Retour — corriger les identifiants",
+        "save_anyway": "Sauvegarder quand même (je corrigerai plus tard)",
+        "abort": "Annuler l'installation"
+      }
+    },
+    "rate_limit_strategy": {
+      "options": {
+        "drop": "Drop — ignorer les messages excédentaires",
+        "queue": "Queue — mettre en attente",
+        "disabled": "Désactivé — aucune limitation"
+      }
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "OVH SMS — Identifiants API",
+        "description": "Saisissez vos identifiants API OVH.\n\n**Comment obtenir vos clés :** rendez-vous sur [eu.api.ovh.com/createToken](https://eu.api.ovh.com/createToken/) et créez un token avec les droits :\n- GET `/me`\n- GET `/sms` et `/sms/*`\n- POST `/sms/*/jobs`\n\nRéglez la **Validité** sur **Illimitée**.\n\nVotre **Nom du service** se trouve dans [l'Espace OVH](https://www.ovh.com/manager/) → Télécom → SMS (format : `sms-xx12345-1`).",
+        "data": {
+          "application_key": "Application Key",
+          "application_secret": "Application Secret",
+          "consumer_key": "Consumer Key",
+          "service_name": "Nom du service SMS",
+          "recipients": "Numéros de téléphone destinataires",
+          "sender": "Expéditeur par défaut"
+        },
+        "data_description": {
+          "application_key": "Aussi appelée AK — visible sur la page de confirmation de création du token",
+          "application_secret": "Aussi appelée AS — gardez-la secrète !",
+          "consumer_key": "Aussi appelée CK — autorise cette application à agir en votre nom",
+          "service_name": "Identifiant de votre compte SMS OVH, ex. `sms-xx12345-1`",
+          "recipients": "Numéros de téléphone séparés par des virgules. Ex. `+33612345678, +33698765432`",
+          "sender": "Nom alphanumérique affiché comme expéditeur (11 chars max). Laisser vide pour un numéro court automatique"
+        }
+      },
+      "validation_failed": {
+        "title": "OVH SMS — Échec de la validation",
+        "description": "Impossible de valider votre configuration :\n\n**{error_detail}**\n\nCela peut arriver si vos clés sont incorrectes, si le nom du service n'existe pas, ou si l'API OVH est temporairement inaccessible.",
+        "data": {
+          "action": "Que souhaitez-vous faire ?"
+        }
+      },
+      "rate_limit": {
+        "title": "OVH SMS — Limitation de débit",
+        "description": "Protégez-vous contre les rafales de notifications pour ne pas épuiser vos crédits SMS.\n\nSi Home Assistant déclenche de nombreuses automatisations en même temps (ex. tous les capteurs de mouvement se déclenchent), la limitation de débit empêche l'envoi de centaines de SMS en quelques secondes.",
+        "data": {
+          "rate_limit_strategy": "Stratégie",
+          "rate_limit_max": "SMS maximum par fenêtre",
+          "rate_limit_window": "Durée de la fenêtre (secondes)",
+          "rate_limit_queue_size": "Taille maximale de la file d'attente"
+        },
+        "data_description": {
+          "rate_limit_strategy": "**drop** — messages excédentaires silencieusement ignorés (idéal pour les alertes répétitives)\n**queue** — messages excédentaires mis en attente et envoyés plus tard (idéal pour les alertes critiques)\n**disabled** — aucune limitation",
+          "rate_limit_max": "Nombre de SMS pouvant être envoyés dans la fenêtre de temps (1–1000). Ignoré si désactivé",
+          "rate_limit_window": "Fenêtre glissante en secondes. Exemple : 10 SMS par 60s = max 10 SMS/minute (10–86400). Ignoré si désactivé",
+          "rate_limit_queue_size": "Nombre max de messages en attente avant que les plus anciens soient supprimés (1–500). Uniquement pour la stratégie **queue**"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible d'atteindre l'API OVH. Vérifiez votre connexion internet.",
+      "invalid_auth": "Identifiants invalides. Vérifiez votre Application Key, Secret et Consumer Key.",
+      "service_not_found": "Service SMS introuvable. Vérifiez le nom du service dans votre Espace OVH.",
+      "unknown": "Une erreur inattendue s'est produite. Consultez les logs de Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Ce service SMS est déjà configuré.",
+      "import_failed": "Échec de l'import de la configuration YAML. Consultez les logs pour plus de détails.",
+      "setup_cancelled": "Installation annulée."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OVH SMS — Paramètres",
+        "description": "Choisissez les paramètres à modifier.",
+        "data": {
+          "section": "Que souhaitez-vous configurer ?"
+        }
+      },
+      "credentials": {
+        "title": "OVH SMS — Identifiants API",
+        "description": "Mettez à jour vos clés API ou le nom du service. Les modifications seront validées auprès de l'API OVH.",
+        "data": {
+          "application_key": "Application Key",
+          "application_secret": "Application Secret",
+          "consumer_key": "Consumer Key",
+          "service_name": "Nom du service SMS",
+          "recipients": "Numéros de téléphone destinataires",
+          "sender": "Expéditeur par défaut"
+        },
+        "data_description": {
+          "application_key": "Votre Application Key OVH (AK)",
+          "application_secret": "Votre Application Secret OVH (AS)",
+          "consumer_key": "Votre Consumer Key OVH (CK)",
+          "service_name": "ex. sms-xx12345-1",
+          "recipients": "Numéros séparés par des virgules, ex. `+33612345678, +33698765432`",
+          "sender": "Expéditeur alphanumérique, ou laisser vide pour un numéro court automatique"
+        }
+      },
+      "test_sms": {
+        "title": "OVH SMS — Envoyer un SMS de test",
+        "description": "Envoyer un SMS de test à vos destinataires configurés : **{recipients}**",
+        "data": {
+          "message": "Message"
+        },
+        "data_description": {
+          "message": "Le message à envoyer"
+        }
+      },
+      "rate_limit": {
+        "title": "OVH SMS — Limitation de débit",
+        "description": "Ajustez la limitation de débit. Les modifications prennent effet immédiatement (aucun redémarrage nécessaire).",
+        "data": {
+          "rate_limit_strategy": "Stratégie",
+          "rate_limit_max": "SMS maximum par fenêtre",
+          "rate_limit_window": "Durée de la fenêtre (secondes)",
+          "rate_limit_queue_size": "Taille maximale de la file d'attente"
+        },
+        "data_description": {
+          "rate_limit_strategy": "**drop** — ignorer l'excédent · **queue** — mettre en attente · **disabled** — pas de limite",
+          "rate_limit_max": "SMS autorisés par fenêtre (1–1000)",
+          "rate_limit_window": "Durée de la fenêtre en secondes (10–86400)",
+          "rate_limit_queue_size": "Messages max en file d'attente (1–500, stratégie queue uniquement)"
+        }
+      },
+      "help": {
+        "title": "OVH SMS — Mode d'emploi",
+        "description": "## Votre entité de notification\n\n**`{entity_id}`**\n\n---\n\n## Déclencher depuis une automatisation\n\nDans l'éditeur d'automatisation : *Actions* → *Appeler un service* → *Notify: Send message* → sélectionner **`{entity_id}`**.\n\nOu en YAML :\n\n```yaml\nservice: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Mouvement détecté à la porte d'entrée !\"\n```\n\n---\n\n## Paramètres avancés du message\n\n| Paramètre | Valeurs | Description |\n|---|---|---|\n| `sender` | texte (11 chars max) | Surcharger l'expéditeur par défaut |\n| `priority` | `high` `medium` `low` `veryLow` | Priorité du message |\n| `coding` | `7bit` `unicode` | `7bit` = 160 chars · `unicode` = accents, 70 chars |\n| `no_stop_clause` | `true` / `false` | `false` pour ajouter une clause STOP (défaut : `true`) |\n\n**Service SMS :** `{service_name}`"
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible d'atteindre l'API OVH.",
+      "invalid_auth": "Identifiants invalides.",
+      "service_not_found": "Service SMS introuvable.",
+      "no_recipients": "Aucun destinataire configuré. Allez dans Identifiants API pour ajouter des numéros.",
+      "test_failed": "Échec de l'envoi du SMS. Vérifiez vos identifiants et votre compte OVH.",
+      "unknown": "Erreur inattendue."
+    }
+  }
+}

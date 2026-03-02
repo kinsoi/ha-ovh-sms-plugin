@@ -128,7 +128,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 me.get("name", ""),
             )
         except ovh.exceptions.APIError as err:
-            _LOGGER.error("OVH SMS: API authentication error: %s", err)
+            _LOGGER.debug("OVH SMS: API authentication error detail: %s", err)
+            _LOGGER.error("OVH SMS: API authentication failed — check your credentials")
             return False
 
         # Verify SMS service exists
@@ -136,13 +137,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             sms_accounts = await hass.async_add_executor_job(client.get, "/sms")
             if conf[CONF_SERVICE_NAME] not in sms_accounts:
                 _LOGGER.error(
-                    "OVH SMS: service '%s' not found. Available: %s",
+                    "OVH SMS: service '%s' not found — check your service name in OVH Manager",
                     conf[CONF_SERVICE_NAME],
-                    sms_accounts,
                 )
                 return False
         except ovh.exceptions.APIError as err:
-            _LOGGER.error("OVH SMS: unable to list SMS services: %s", err)
+            _LOGGER.debug("OVH SMS: SMS service list error detail: %s", err)
+            _LOGGER.error("OVH SMS: unable to list SMS services — check your API permissions")
             return False
     else:
         _LOGGER.warning(

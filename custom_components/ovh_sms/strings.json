@@ -73,6 +73,7 @@
       "cannot_connect": "Cannot reach OVH API. Check your internet connection.",
       "invalid_auth": "Invalid credentials. Double-check your Application Key, Secret and Consumer Key.",
       "service_not_found": "SMS service not found. Verify the service name in your OVH Manager.",
+      "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "unknown": "An unexpected error occurred. Check Home Assistant logs."
     },
     "abort": {
@@ -103,10 +104,10 @@
         },
         "data_description": {
           "application_key": "Your OVH Application Key (AK)",
-          "application_secret": "Your OVH Application Secret (AS)",
-          "consumer_key": "Your OVH Consumer Key (CK)",
+          "application_secret": "Your OVH Application Secret (AS) — leave blank to keep current value",
+          "consumer_key": "Your OVH Consumer Key (CK) — leave blank to keep current value",
           "service_name": "e.g. sms-xx12345-1",
-          "recipients": "Phone numbers separated by commas, e.g. `+33612345678, +33698765432`",
+          "recipients": "Phone numbers in E.164 format (+33612345678), separated by commas",
           "sender": "Alphanumeric sender ID, or leave empty for auto short number"
         }
       },

@@ -73,6 +73,7 @@
       "cannot_connect": "Cannot reach OVH API. Check your internet connection.",
       "invalid_auth": "Invalid credentials. Double-check your Application Key, Secret and Consumer Key.",
       "service_not_found": "SMS service not found. Verify the service name in your OVH Manager.",
+      "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "unknown": "An unexpected error occurred. Check Home Assistant logs."
     },
     "abort": {

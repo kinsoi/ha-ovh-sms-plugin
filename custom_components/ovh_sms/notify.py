@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import logging
+import re
 import time
 from typing import Any
 
@@ -30,6 +31,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 
 
 # ──────────────────────────────────────────────
@@ -163,6 +165,15 @@ class OVHSMSNotifyEntity(NotifyEntity):
         if isinstance(targets, str):
             targets = [targets]
 
+        valid_targets = [t for t in targets if _E164_RE.match(str(t))]
+        invalid_targets = [t for t in targets if not _E164_RE.match(str(t))]
+        if invalid_targets:
+            _LOGGER.warning("OVH SMS: %d recipient(s) ignored — not valid E.164 format", len(invalid_targets))
+        if not valid_targets:
+            _LOGGER.error("OVH SMS: no valid recipients after E.164 validation")
+            return
+        targets = valid_targets
+
         if self._strategy == STRATEGY_DISABLED or self._limiter is None:
             await self._hass.async_add_executor_job(
                 self._do_send, message, list(targets), data
@@ -257,6 +268,8 @@ class OVHSMSNotifyEntity(NotifyEntity):
                 remaining,
             )
         except ovh.exceptions.APIError as err:
-            _LOGGER.error("OVH SMS: send error: %s", err)
+            _LOGGER.debug("OVH SMS: send error detail: %s", err)
+            _LOGGER.error("OVH SMS: failed to send message — check your OVH account and API permissions")
         except ovh.exceptions.InvalidResponse as err:
-            _LOGGER.error("OVH SMS: invalid API response: %s", err)
+            _LOGGER.debug("OVH SMS: invalid API response detail: %s", err)
+            _LOGGER.error("OVH SMS: invalid response from OVH API")

@@ -73,6 +73,7 @@
       "cannot_connect": "Impossible d'atteindre l'API OVH. Vérifiez votre connexion internet.",
       "invalid_auth": "Identifiants invalides. Vérifiez votre Application Key, Secret et Consumer Key.",
       "service_not_found": "Service SMS introuvable. Vérifiez le nom du service dans votre Espace OVH.",
+      "invalid_recipients": "Numéros invalides — utilisez le format E.164 : +33612345678",
       "unknown": "Une erreur inattendue s'est produite. Consultez les logs de Home Assistant."
     },
     "abort": {

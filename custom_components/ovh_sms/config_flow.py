@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import ovh
@@ -41,6 +42,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 
 # ── Schemas ───────────────────────────────────
 
@@ -79,8 +81,13 @@ STEP_RATE_LIMIT_SCHEMA = vol.Schema(
 # ── Helpers ───────────────────────────────────
 
 def parse_recipients(raw: str) -> list[str]:
-    """Parse a comma-separated string of phone numbers into a clean list."""
-    return [n.strip() for n in raw.split(",") if n.strip()]
+    """Parse a comma-separated string of E.164 phone numbers into a clean list."""
+    return [n.strip() for n in raw.split(",") if n.strip() and _E164_RE.match(n.strip())]
+
+
+def _invalid_recipients(raw: str) -> list[str]:
+    """Return numbers that don't match E.164 format."""
+    return [n.strip() for n in raw.split(",") if n.strip() and not _E164_RE.match(n.strip())]
 
 
 # ── Validation ────────────────────────────────
@@ -106,21 +113,21 @@ async def validate_input(
     except ovh.exceptions.InvalidCredential:
         raise InvalidAuth("Invalid or expired consumer key")
     except ovh.exceptions.APIError as err:
-        _LOGGER.error("OVH validate_input: APIError: %s", err)
-        raise CannotConnect(f"OVH API error: {err}")
+        _LOGGER.debug("OVH validate_input: APIError detail: %s", err)
+        raise CannotConnect("OVH API error — check your credentials and network")
     except Exception as err:
-        _LOGGER.exception("OVH validate_input: unexpected error: %s", err)
-        raise CannotConnect(f"Connection error: {err}")
+        _LOGGER.debug("OVH validate_input: unexpected error: %s", err)
+        raise CannotConnect("Unexpected connection error")
 
     try:
         sms_accounts = await hass.async_add_executor_job(client.get, "/sms")
     except ovh.exceptions.APIError as err:
-        raise CannotConnect(f"Unable to list SMS services: {err}")
+        _LOGGER.debug("OVH validate_input: SMS list error: %s", err)
+        raise CannotConnect("Unable to list SMS services — check API permissions")
 
     if data[CONF_SERVICE_NAME] not in sms_accounts:
         raise ServiceNotFound(
-            f"Service '{data[CONF_SERVICE_NAME]}' not found. "
-            f"Available: {sms_accounts}"
+            f"Service '{data[CONF_SERVICE_NAME]}' not found — check your OVH Manager"
         )
 
     account_name = me.get("firstname", "")
@@ -156,6 +163,18 @@ class OVHSMSConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            invalid = _invalid_recipients(user_input.get(CONF_RECIPIENTS, ""))
+            if invalid:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=STEP_USER_DATA_SCHEMA,
+                    description_placeholders={
+                        "create_token_url": "https://eu.api.ovh.com/createToken/",
+                        "ovh_manager_url": "https://www.ovh.com/manager/",
+                    },
+                    errors={CONF_RECIPIENTS: "invalid_recipients"},
+                )
+
             await self.async_set_unique_id(user_input[CONF_SERVICE_NAME])
             self._abort_if_unique_id_configured()
 
@@ -317,28 +336,41 @@ class OVHSMSOptionsFlow(OptionsFlow):
         current = self._config_entry.data
 
         if user_input is not None:
-            # Validate new credentials
-            try:
-                await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except ServiceNotFound:
-                errors[CONF_SERVICE_NAME] = "service_not_found"
-            except Exception:
-                errors["base"] = "unknown"
+            # For secret fields, keep existing value if user left blank
+            merged = dict(current)
+            merged[CONF_APPLICATION_KEY] = user_input[CONF_APPLICATION_KEY]
+            merged[CONF_SERVICE_NAME] = user_input[CONF_SERVICE_NAME]
+            merged[CONF_RECIPIENTS] = user_input[CONF_RECIPIENTS]
+            merged[CONF_SENDER] = user_input.get(CONF_SENDER, DEFAULT_SENDER)
+            if user_input.get(CONF_APPLICATION_SECRET, "").strip():
+                merged[CONF_APPLICATION_SECRET] = user_input[CONF_APPLICATION_SECRET]
+            if user_input.get(CONF_CONSUMER_KEY, "").strip():
+                merged[CONF_CONSUMER_KEY] = user_input[CONF_CONSUMER_KEY]
+
+            invalid = _invalid_recipients(merged.get(CONF_RECIPIENTS, ""))
+            if invalid:
+                errors[CONF_RECIPIENTS] = "invalid_recipients"
             else:
-                # Merge with existing data, update validated flag
-                new_data = {**current, **user_input, "config_validated": True}
-                new_data[CONF_RECIPIENTS] = parse_recipients(
-                    new_data.get(CONF_RECIPIENTS, "")
-                )
-                self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data,
-                    title=f"OVH SMS - {user_input[CONF_SERVICE_NAME]}",
-                )
-                return self.async_create_entry(data={})
+                try:
+                    await validate_input(self.hass, merged)
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except InvalidAuth:
+                    errors["base"] = "invalid_auth"
+                except ServiceNotFound:
+                    errors[CONF_SERVICE_NAME] = "service_not_found"
+                except Exception:
+                    errors["base"] = "unknown"
+                else:
+                    new_data = {**merged, "config_validated": True}
+                    new_data[CONF_RECIPIENTS] = parse_recipients(
+                        new_data.get(CONF_RECIPIENTS, "")
+                    )
+                    self.hass.config_entries.async_update_entry(
+                        self._config_entry, data=new_data,
+                        title=f"OVH SMS - {merged[CONF_SERVICE_NAME]}",
+                    )
+                    return self.async_create_entry(data={})
 
         schema = vol.Schema(
             {
@@ -346,14 +378,8 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     CONF_APPLICATION_KEY,
                     default=current.get(CONF_APPLICATION_KEY, ""),
                 ): str,
-                vol.Required(
-                    CONF_APPLICATION_SECRET,
-                    default=current.get(CONF_APPLICATION_SECRET, ""),
-                ): str,
-                vol.Required(
-                    CONF_CONSUMER_KEY,
-                    default=current.get(CONF_CONSUMER_KEY, ""),
-                ): str,
+                vol.Optional(CONF_APPLICATION_SECRET, default=""): str,
+                vol.Optional(CONF_CONSUMER_KEY, default=""): str,
                 vol.Required(
                     CONF_SERVICE_NAME,
                     default=current.get(CONF_SERVICE_NAME, ""),

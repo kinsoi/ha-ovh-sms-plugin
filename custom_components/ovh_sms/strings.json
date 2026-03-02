@@ -27,7 +27,7 @@
     "step": {
       "user": {
         "title": "OVH SMS — API Credentials",
-        "description": "Enter your OVH API credentials.\n\n**How to get your keys:** go to [eu.api.ovh.com/createToken](https://eu.api.ovh.com/createToken/) and create a token with:\n- GET `/me`\n- GET `/sms` and `/sms/*`\n- POST `/sms/*/jobs`\n\nSet **Validity** to **Unlimited**.\n\nYour **Service Name** is found in [OVH Manager](https://www.ovh.com/manager/) → Telecom → SMS (format: `sms-xx12345-1`).",
+        "description": "Enter your OVH API credentials.\n\n**How to get your keys:** go to [eu.api.ovh.com/createToken]({create_token_url}) and create a token with:\n- GET `/me`\n- GET `/sms` and `/sms/*`\n- POST `/sms/*/jobs`\n\nSet **Validity** to **Unlimited**.\n\nYour **Service Name** is found in [OVH Manager]({ovh_manager_url}) → Telecom → SMS (format: `sms-xx12345-1`).",
         "data": {
           "application_key": "Application Key",
           "application_secret": "Application Secret",

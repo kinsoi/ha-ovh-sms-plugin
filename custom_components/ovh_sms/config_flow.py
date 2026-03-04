@@ -526,8 +526,10 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 valid = result.get("validReceivers", [])
                 invalid = result.get("invalidReceivers", [])
                 _LOGGER.info(
-                    "OVH SMS test: sent to %s, invalid: %s", valid, invalid
+                    "OVH SMS test: sent to %d recipient(s), %d invalid",
+                    len(valid), len(invalid),
                 )
+                _LOGGER.debug("OVH SMS test detail — valid: %s, invalid: %s", valid, invalid)
                 notif_msg = f"✅ SMS sent to {len(valid)} recipient(s)"
                 if invalid:
                     notif_msg += f"\n❌ {len(invalid)} invalid number(s) — not E.164 format"
@@ -542,7 +544,8 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 )
                 return self.async_create_entry(data={})
             except ovh.exceptions.APIError as err:
-                _LOGGER.error("OVH SMS test failed: %s", err)
+                _LOGGER.debug("OVH SMS test error detail: %s", err)
+                _LOGGER.error("OVH SMS test failed — check your credentials and OVH account")
                 errors["base"] = "test_failed"
 
         return self.async_show_form(

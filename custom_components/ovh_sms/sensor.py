@@ -92,7 +92,9 @@ class OVHSMSCreditSensor(SensorEntity):
             )
 
         except ovh.exceptions.APIError as err:
-            _LOGGER.error(
-                "OVH SMS: error fetching credit info: %s", err
+            _LOGGER.debug("OVH SMS: credit fetch error detail: %s", err)
+            _LOGGER.warning(
+                "OVH SMS: unable to fetch credit info — will retry in %d min",
+                SCAN_INTERVAL.seconds // 60,
             )
             self._attr_available = False

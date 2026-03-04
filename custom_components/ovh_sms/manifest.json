@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/kinsoi/ha-ovh-sms-plugin/issues",
   "loggers": ["ovh"],
   "requirements": ["ovh>=1.1.0,<2.0.0"],
-  "version": "1.2.0"
+  "version": "1.2.1"
 }

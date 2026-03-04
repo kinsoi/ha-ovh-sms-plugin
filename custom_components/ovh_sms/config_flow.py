@@ -270,6 +270,12 @@ class OVHSMSConfigFlow(ConfigFlow, domain=DOMAIN):
         import_data.setdefault(CONF_RATE_LIMIT_WINDOW, DEFAULT_RATE_LIMIT_WINDOW)
         import_data.setdefault(CONF_RATE_LIMIT_QUEUE_SIZE, DEFAULT_RATE_LIMIT_QUEUE_SIZE)
 
+        raw_recipients = import_data.get(CONF_RECIPIENTS, "")
+        import_data[CONF_RECIPIENTS] = parse_recipients(
+            raw_recipients if isinstance(raw_recipients, str)
+            else ", ".join(raw_recipients)
+        )
+
         try:
             await validate_input(self.hass, import_data)
             import_data["config_validated"] = True
@@ -370,6 +376,9 @@ class OVHSMSOptionsFlow(OptionsFlow):
                         self._config_entry, data=new_data,
                         title=f"OVH SMS - {merged[CONF_SERVICE_NAME]}",
                     )
+                    self.hass.config_entries.async_schedule_reload(
+                        self._config_entry.entry_id
+                    )
                     return self.async_create_entry(data={})
 
         schema = vol.Schema(
@@ -411,6 +420,9 @@ class OVHSMSOptionsFlow(OptionsFlow):
             new_data = {**current, **user_input}
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data,
+            )
+            self.hass.config_entries.async_schedule_reload(
+                self._config_entry.entry_id
             )
             return self.async_create_entry(data={})
 
@@ -516,9 +528,9 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 _LOGGER.info(
                     "OVH SMS test: sent to %s, invalid: %s", valid, invalid
                 )
-                notif_msg = f"✅ SMS envoyé à : {', '.join(valid)}"
+                notif_msg = f"✅ SMS sent to {len(valid)} recipient(s)"
                 if invalid:
-                    notif_msg += f"\n❌ Numéros invalides : {', '.join(invalid)}"
+                    notif_msg += f"\n❌ {len(invalid)} invalid number(s) — not E.164 format"
                 await self.hass.services.async_call(
                     "persistent_notification",
                     "create",

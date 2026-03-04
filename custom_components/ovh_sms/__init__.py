@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import ovh
 import voluptuous as vol
@@ -68,11 +69,16 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
+_E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
+
+
 def _parse_recipients(value: list | str) -> list[str]:
-    """Normalize recipients — handles both list and legacy comma-separated string."""
+    """Normalize and E.164-validate recipients (list or legacy comma-separated string)."""
     if isinstance(value, list):
-        return [r.strip() for r in value if str(r).strip()]
-    return [r.strip() for r in str(value).split(",") if r.strip()]
+        numbers = [r.strip() for r in value if str(r).strip()]
+    else:
+        numbers = [r.strip() for r in str(value).split(",") if r.strip()]
+    return [n for n in numbers if _E164_RE.match(n)]
 
 
 # ──────────────────────────────────────────────

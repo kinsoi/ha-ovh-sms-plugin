@@ -104,8 +104,8 @@
         },
         "data_description": {
           "application_key": "Votre Application Key OVH (AK)",
-          "application_secret": "Votre Application Secret OVH (AS)",
-          "consumer_key": "Votre Consumer Key OVH (CK)",
+          "application_secret": "Votre Application Secret OVH (AS) — laisser vide pour conserver la valeur actuelle",
+          "consumer_key": "Votre Consumer Key OVH (CK) — laisser vide pour conserver la valeur actuelle",
           "service_name": "ex. sms-xx12345-1",
           "recipients": "Numéros séparés par des virgules, ex. `+33612345678, +33698765432`",
           "sender": "Expéditeur alphanumérique, ou laisser vide pour un numéro court automatique"
@@ -147,6 +147,7 @@
       "invalid_auth": "Identifiants invalides.",
       "service_not_found": "Service SMS introuvable.",
       "no_recipients": "Aucun destinataire configuré. Allez dans Identifiants API pour ajouter des numéros.",
+      "invalid_recipients": "Numéros invalides — utilisez le format E.164 : +33612345678",
       "test_failed": "Échec de l'envoi du SMS. Vérifiez vos identifiants et votre compte OVH.",
       "unknown": "Erreur inattendue."
     }

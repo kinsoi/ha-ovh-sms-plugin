@@ -259,13 +259,20 @@ class OVHSMSNotifyEntity(NotifyEntity):
         try:
             result = self._client.post(f"/sms/{self._service_name}/jobs", **payload)
             remaining = f", {self._limiter.remaining} slot(s) remaining" if self._limiter else ""
+            valid_count = len(result.get("validReceivers", []))
+            invalid_count = len(result.get("invalidReceivers", []))
             _LOGGER.info(
-                "OVH SMS sent: %d credit(s) used, IDs: %s, valid: %s, invalid: %s%s",
+                "OVH SMS sent: %d credit(s) used, %d delivered, %d invalid%s",
                 result.get("totalCreditsRemoved", 0),
+                valid_count,
+                invalid_count,
+                remaining,
+            )
+            _LOGGER.debug(
+                "OVH SMS sent detail — IDs: %s, valid: %s, invalid: %s",
                 result.get("ids", []),
                 result.get("validReceivers", []),
                 result.get("invalidReceivers", []),
-                remaining,
             )
         except ovh.exceptions.APIError as err:
             _LOGGER.debug("OVH SMS: send error detail: %s", err)

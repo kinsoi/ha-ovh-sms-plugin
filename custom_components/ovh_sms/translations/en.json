@@ -104,8 +104,8 @@
         },
         "data_description": {
           "application_key": "Your OVH Application Key (AK)",
-          "application_secret": "Your OVH Application Secret (AS)",
-          "consumer_key": "Your OVH Consumer Key (CK)",
+          "application_secret": "Your OVH Application Secret (AS) — leave blank to keep current value",
+          "consumer_key": "Your OVH Consumer Key (CK) — leave blank to keep current value",
           "service_name": "e.g. sms-xx12345-1",
           "recipients": "Phone numbers separated by commas, e.g. `+33612345678, +33698765432`",
           "sender": "Alphanumeric sender ID, or leave empty for auto short number"
@@ -147,6 +147,7 @@
       "invalid_auth": "Invalid credentials.",
       "service_not_found": "SMS service not found.",
       "no_recipients": "No recipients configured. Go to API credentials to add phone numbers.",
+      "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "test_failed": "SMS send failed. Check your credentials and OVH account.",
       "unknown": "Unexpected error."
     }

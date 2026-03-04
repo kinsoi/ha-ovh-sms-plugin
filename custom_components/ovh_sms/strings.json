@@ -147,6 +147,7 @@
       "invalid_auth": "Invalid credentials.",
       "service_not_found": "SMS service not found.",
       "no_recipients": "No recipients configured. Go to API credentials to add phone numbers.",
+      "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "test_failed": "SMS send failed. Check your credentials and OVH account.",
       "unknown": "Unexpected error."
     }

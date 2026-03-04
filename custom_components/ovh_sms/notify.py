@@ -211,6 +211,14 @@ class OVHSMSNotifyEntity(NotifyEntity):
             )
             self._ensure_queue_processor()
 
+    # ── Lifecycle ─────────────────────────────
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the queue processor task on unload."""
+        if self._queue_task is not None and not self._queue_task.done():
+            self._queue_task.cancel()
+            _LOGGER.debug("OVH SMS: queue task cancelled on unload")
+
     # ── Queue processor ───────────────────────
 
     def _ensure_queue_processor(self) -> None:

@@ -379,6 +379,20 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     self.hass.config_entries.async_schedule_reload(
                         self._config_entry.entry_id
                     )
+                    if not new_data[CONF_RECIPIENTS]:
+                        await self.hass.services.async_call(
+                            "persistent_notification",
+                            "create",
+                            {
+                                "message": (
+                                    "⚠️ No default recipients configured.\n\n"
+                                    "SMS will only be sent if you provide a `target` "
+                                    "in your automation's service call data."
+                                ),
+                                "title": "OVH SMS — No recipients",
+                                "notification_id": "ovh_sms_no_recipients",
+                            },
+                        )
                     return self.async_create_entry(data={})
 
         schema = vol.Schema(

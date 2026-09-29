@@ -8,6 +8,7 @@ from typing import Any
 import ovh
 import voluptuous as vol
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -16,8 +17,13 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig, SelectSelectorMode
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
+from .api import is_auth_error
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -108,22 +114,30 @@ async def validate_input(
 
     try:
         me = await hass.async_add_executor_job(client.get, "/me")
-    except ovh.exceptions.InvalidKey:
-        raise InvalidAuth("Invalid application key or secret")
-    except ovh.exceptions.InvalidCredential:
-        raise InvalidAuth("Invalid or expired consumer key")
+    except ovh.exceptions.InvalidKey as err:
+        raise InvalidAuth("Invalid application key or secret") from err
+    except ovh.exceptions.InvalidCredential as err:
+        raise InvalidAuth("Invalid or expired consumer key") from err
     except ovh.exceptions.APIError as err:
         _LOGGER.debug("OVH validate_input: APIError detail: %s", err)
-        raise CannotConnect("OVH API error — check your credentials and network")
+        if is_auth_error(err):
+            raise InvalidAuth(
+                "Access denied — check your keys and the token access rules"
+            ) from err
+        raise CannotConnect("OVH API error — check your network") from err
     except Exception as err:
         _LOGGER.debug("OVH validate_input: unexpected error: %s", err)
-        raise CannotConnect("Unexpected connection error")
+        raise CannotConnect("Unexpected connection error") from err
 
     try:
         sms_accounts = await hass.async_add_executor_job(client.get, "/sms")
     except ovh.exceptions.APIError as err:
         _LOGGER.debug("OVH validate_input: SMS list error: %s", err)
-        raise CannotConnect("Unable to list SMS services — check API permissions")
+        if is_auth_error(err):
+            raise InvalidAuth(
+                "Missing API rights on /sms — check the token access rules"
+            ) from err
+        raise CannotConnect("Unable to list SMS services — check your network") from err
 
     if data[CONF_SERVICE_NAME] not in sms_accounts:
         raise ServiceNotFound(
@@ -356,6 +370,12 @@ class OVHSMSOptionsFlow(OptionsFlow):
             invalid = _invalid_recipients(merged.get(CONF_RECIPIENTS, ""))
             if invalid:
                 errors[CONF_RECIPIENTS] = "invalid_recipients"
+            elif any(
+                entry.unique_id == merged[CONF_SERVICE_NAME]
+                and entry.entry_id != self._config_entry.entry_id
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+            ):
+                errors[CONF_SERVICE_NAME] = "already_configured"
             else:
                 try:
                     await validate_input(self.hass, merged)
@@ -375,23 +395,19 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     self.hass.config_entries.async_update_entry(
                         self._config_entry, data=new_data,
                         title=f"OVH SMS - {merged[CONF_SERVICE_NAME]}",
+                        unique_id=merged[CONF_SERVICE_NAME],
                     )
                     self.hass.config_entries.async_schedule_reload(
                         self._config_entry.entry_id
                     )
                     if not new_data[CONF_RECIPIENTS]:
-                        await self.hass.services.async_call(
-                            "persistent_notification",
-                            "create",
-                            {
-                                "message": (
-                                    "⚠️ No default recipients configured.\n\n"
-                                    "SMS will only be sent if you provide a `target` "
-                                    "in your automation's service call data."
-                                ),
-                                "title": "OVH SMS — No recipients",
-                                "notification_id": "ovh_sms_no_recipients",
-                            },
+                        persistent_notification.async_create(
+                            self.hass,
+                            "⚠️ No default recipients configured.\n\n"
+                            "SMS will only be sent with the `ovh_sms.send_sms` "
+                            "action and its `recipients` field.",
+                            title="OVH SMS — No recipients",
+                            notification_id="ovh_sms_no_recipients",
                         )
                     return self.async_create_entry(data={})
 
@@ -547,14 +563,11 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 notif_msg = f"✅ SMS sent to {len(valid)} recipient(s)"
                 if invalid:
                     notif_msg += f"\n❌ {len(invalid)} invalid number(s) — not E.164 format"
-                await self.hass.services.async_call(
-                    "persistent_notification",
-                    "create",
-                    {
-                        "message": notif_msg,
-                        "title": "OVH SMS — Test",
-                        "notification_id": "ovh_sms_test_result",
-                    },
+                persistent_notification.async_create(
+                    self.hass,
+                    notif_msg,
+                    title="OVH SMS — Test",
+                    notification_id="ovh_sms_test_result",
                 )
                 return self.async_create_entry(data={})
             except ovh.exceptions.APIError as err:

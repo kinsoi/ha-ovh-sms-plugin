@@ -2,13 +2,14 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/kinsoi/ha-ovh-sms-plugin.svg)](https://github.com/kinsoi/ha-ovh-sms-plugin/releases)
-[![HA version](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-blue)](https://www.home-assistant.io/)
+[![HA version](https://img.shields.io/badge/Home%20Assistant-2024.5%2B-blue)](https://www.home-assistant.io/)
 
 Send SMS notifications via the [OVHcloud SMS API](https://api.ovh.com/console/#/sms) from Home Assistant.
 
 ## Features
 
-- **Send SMS** from automations via the `notify.send_message` action
+- **Send SMS** from automations via the standard `notify.send_message` action
+- **`ovh_sms.send_sms` action** for per-message recipients, sender, priority and encoding
 - **Credit sensor** showing remaining SMS credits
 - **Rate limiting** with 3 strategies: drop, queue, or disabled
 - **Configurable via UI** — no YAML required
@@ -84,34 +85,28 @@ data:
   message: "Hello from Home Assistant!"
 ```
 
-### Send to specific recipients (override defaults)
+`notify.send_message` only accepts `message` (and `title`, which SMS ignores) and always sends to the recipients configured in the integration.
+
+### Send to specific recipients / advanced options
+
+Use the `ovh_sms.send_sms` action (**OVH SMS: Send SMS** in the automation editor). Every field except `message` is optional:
 
 ```yaml
-action: notify.send_message
-target:
-  entity_id: notify.ovh_sms_sms_xx12345_1
-data:
-  message: "Hello!"
-  data:
-    target:
-      - "+33612345678"
-      - "+33698765432"
-```
-
-### Advanced options
-
-```yaml
-action: notify.send_message
+action: ovh_sms.send_sms
 target:
   entity_id: notify.ovh_sms_sms_xx12345_1
 data:
   message: "Alarm triggered!"
-  data:
-    sender: "MyHome"          # override default sender (max 11 chars)
-    no_stop_clause: true      # false = add STOP clause
-    priority: "high"          # high | medium | low | veryLow
-    coding: "7bit"            # 7bit (160 chars) | unicode (accents, 70 chars)
+  recipients:               # defaults to the configured recipients
+    - "+33612345678"
+    - "+33698765432"
+  sender: "MyHome"          # override default sender (max 11 chars)
+  no_stop_clause: true      # false = add STOP clause
+  priority: "high"          # high | medium | low | veryLow
+  coding: "8bit"            # 7bit (GSM, 160 chars) | 8bit (Unicode, 70 chars)
 ```
+
+Phone numbers must use the E.164 format (`+` then country code and number). Invalid input is rejected before anything is sent, and OVH API failures are reported as an error of the action, so they show up in the automation trace.
 
 ### Automation example — intrusion alert
 
@@ -177,11 +172,22 @@ ovh_sms:
   application_secret: "YOUR_AS"
   consumer_key: "YOUR_CK"
   service_name: "sms-xx12345-1"
+  recipients:                       # optional: default recipients (E.164)
+    - "+33612345678"
   sender: ""                        # optional: alphanumeric sender ID
   rate_limit_strategy: "drop"       # drop | queue | disabled
   rate_limit_max: 10                # max SMS per window
   rate_limit_window: 60             # window in seconds
   rate_limit_queue_size: 50         # max queued messages (queue strategy only)
+```
+
+## Development
+
+Tests use [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) and never call the real OVH API:
+
+```bash
+pip install -r requirements_test.txt
+python -m pytest
 ```
 
 ## License

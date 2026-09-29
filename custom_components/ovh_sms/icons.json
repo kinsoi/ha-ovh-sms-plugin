@@ -1,0 +1,7 @@
+{
+  "services": {
+    "send_sms": {
+      "service": "mdi:message-arrow-right-outline"
+    }
+  }
+}

@@ -10,9 +10,11 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from .api import is_auth_error
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -49,6 +51,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_APPLICATION_SECRET): cv.string,
                 vol.Required(CONF_CONSUMER_KEY): cv.string,
                 vol.Required(CONF_SERVICE_NAME): cv.string,
+                vol.Optional(CONF_RECIPIENTS, default=[]): vol.All(
+                    cv.ensure_list_csv, [cv.string]
+                ),
                 vol.Optional(CONF_SENDER, default=DEFAULT_SENDER): cv.string,
                 vol.Optional(
                     CONF_RATE_LIMIT_STRATEGY, default=DEFAULT_RATE_LIMIT_STRATEGY
@@ -125,32 +130,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config_valid = conf.get("config_validated", True)
 
     if config_valid:
-        # Verify API connection
+        # Verify API connection and that the SMS service exists
         try:
-            me = await hass.async_add_executor_job(client.get, "/me")
-            _LOGGER.info(
-                "OVH SMS: authenticated as %s %s",
-                me.get("firstname", ""),
-                me.get("name", ""),
-            )
-        except ovh.exceptions.APIError as err:
-            _LOGGER.debug("OVH SMS: API authentication error detail: %s", err)
-            _LOGGER.error("OVH SMS: API authentication failed — check your credentials")
-            return False
-
-        # Verify SMS service exists
-        try:
+            await hass.async_add_executor_job(client.get, "/me")
             sms_accounts = await hass.async_add_executor_job(client.get, "/sms")
-            if conf[CONF_SERVICE_NAME] not in sms_accounts:
-                _LOGGER.error(
-                    "OVH SMS: service '%s' not found — check your service name in OVH Manager",
-                    conf[CONF_SERVICE_NAME],
-                )
-                return False
         except ovh.exceptions.APIError as err:
-            _LOGGER.debug("OVH SMS: SMS service list error detail: %s", err)
-            _LOGGER.error("OVH SMS: unable to list SMS services — check your API permissions")
-            return False
+            _LOGGER.debug("OVH SMS: API error detail: %s", err)
+            if is_auth_error(err):
+                raise ConfigEntryError(
+                    "OVH API authentication failed — check your credentials and API rights"
+                ) from err
+            raise ConfigEntryNotReady("OVH API is unreachable, will retry") from err
+
+        if conf[CONF_SERVICE_NAME] not in sms_accounts:
+            raise ConfigEntryError(
+                f"SMS service '{conf[CONF_SERVICE_NAME]}' not found — "
+                "check your service name in OVH Manager"
+            )
     else:
         _LOGGER.warning(
             "OVH SMS: configuration was saved without validation. "

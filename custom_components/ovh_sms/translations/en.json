@@ -21,6 +21,12 @@
         "queue": "Queue — delay excess messages",
         "disabled": "Disabled — no throttling"
       }
+    },
+    "coding": {
+      "options": {
+        "7bit": "7bit — GSM, 160 chars",
+        "8bit": "8bit — Unicode, 70 chars"
+      }
     }
   },
   "config": {
@@ -139,7 +145,7 @@
       },
       "help": {
         "title": "OVH SMS — How to use",
-        "description": "## Your notify entity\n\n**`{entity_id}`**\n\n---\n\n## Trigger from an automation\n\nIn the automation editor: *Actions* → *Call service* → *Notify: Send message* → select **`{entity_id}`**.\n\nOr in YAML:\n\n```yaml\nservice: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Motion detected at front door!\"\n```\n\n---\n\n## Send to a dynamic recipient\n\nNo default recipients? Pass a `target` number at call time:\n\n```yaml\nservice: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Hello!\"\n  target: \"+33612345678\"\n```\n\nNumbers must be in **E.164 format** (`+` followed by country code and number, e.g. `+33612345678`).\n\n---\n\n## Advanced message parameters\n\n| Parameter | Values | Description |\n|---|---|---|\n| `sender` | text (max 11 chars) | Override the default sender |\n| `priority` | `high` `medium` `low` `veryLow` | Message priority |\n| `coding` | `7bit` `unicode` | `7bit` = 160 chars · `unicode` = accents, 70 chars |\n| `no_stop_clause` | `true` / `false` | `false` adds a STOP clause (default: `true`) |\n\n**SMS service:** `{service_name}`"
+        "description": "## Your notify entity\n\n**`{entity_id}`**\n\n---\n\n## Simple notification\n\nSend to the default recipients with the standard notify action:\n\n```yaml\naction: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Motion detected at front door!\"\n```\n\n---\n\n## Custom recipients and options\n\nUse the **OVH SMS: Send SMS** action (`ovh_sms.send_sms`):\n\n```yaml\naction: ovh_sms.send_sms\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Hello!\"\n  recipients:\n    - \"+33612345678\"\n  sender: \"MyHome\"\n  priority: high\n  coding: 8bit\n```\n\nNumbers must be in **E.164 format** (`+` followed by country code and number, e.g. `+33612345678`).\n\n| Field | Values | Description |\n|---|---|---|\n| `recipients` | list of E.164 numbers | Defaults to the configured recipients |\n| `sender` | text (max 11 chars) | Override the default sender |\n| `priority` | `high` `medium` `low` `veryLow` | Message priority |\n| `coding` | `7bit` `8bit` | `7bit` = 160 chars · `8bit` = Unicode, 70 chars |\n| `no_stop_clause` | `true` / `false` | `false` adds a STOP clause (default: `true`) |\n\n**SMS service:** `{service_name}`"
       }
     },
     "error": {
@@ -149,7 +155,40 @@
       "no_recipients": "No recipients configured. Go to API credentials to add phone numbers.",
       "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "test_failed": "SMS send failed. Check your credentials and OVH account.",
-      "unknown": "Unexpected error."
+      "unknown": "Unexpected error.",
+      "already_configured": "This SMS service is already configured in another entry."
+    }
+  },
+  "services": {
+    "send_sms": {
+      "name": "Send SMS",
+      "description": "Sends an SMS through OVHcloud, with optional recipients and OVH-specific options.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Text of the SMS."
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Phone numbers in E.164 format (e.g. +33612345678). Defaults to the recipients configured in the integration."
+        },
+        "sender": {
+          "name": "Sender",
+          "description": "Alphanumeric sender ID (max 11 characters), overrides the default sender. Must be allowed on your OVH account."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Delivery priority."
+        },
+        "coding": {
+          "name": "Coding",
+          "description": "7bit: GSM alphabet, 160 characters per SMS. 8bit: Unicode (accents, emoji), 70 characters per SMS."
+        },
+        "no_stop_clause": {
+          "name": "No STOP clause",
+          "description": "Disable the STOP clause (only allowed for non-commercial messages)."
+        }
+      }
     }
   }
 }

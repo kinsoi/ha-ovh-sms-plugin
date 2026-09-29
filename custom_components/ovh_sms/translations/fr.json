@@ -191,5 +191,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "out_of_credits": {
+      "title": "OVH SMS : plus de crédits sur {service_name}",
+      "description": "Le compte SMS OVHcloud **{service_name}** n'a plus de crédits : les notifications SMS ne sont pas envoyées.\n\nRechargez le compte dans l'espace client OVHcloud (Télécom → SMS → {service_name}).\n\nCette alerte disparaît automatiquement dès que des crédits sont disponibles (vérification toutes les 30 minutes, ou au prochain SMS envoyé avec succès)."
+    }
   }
 }

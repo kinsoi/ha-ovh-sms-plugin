@@ -37,6 +37,7 @@ from .const import (
     STRATEGY_DROP,
     STRATEGY_QUEUE,
 )
+from .issues import async_update_out_of_credits_issue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,3 +187,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up repair issues when the entry is deleted."""
+    async_update_out_of_credits_issue(hass, entry.data[CONF_SERVICE_NAME], False)

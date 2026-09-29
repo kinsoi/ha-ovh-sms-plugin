@@ -191,5 +191,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "out_of_credits": {
+      "title": "OVH SMS: no credits left on {service_name}",
+      "description": "The OVHcloud SMS account **{service_name}** has no credits left, so SMS notifications are not being sent.\n\nTop up the account in the OVHcloud Manager (Telecom → SMS → {service_name}).\n\nThis alert disappears automatically once credits are available again (checked every 30 minutes, or at the next successful SMS)."
+    }
   }
 }

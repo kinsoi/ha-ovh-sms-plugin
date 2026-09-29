@@ -12,6 +12,7 @@ from typing import Any
 import ovh
 import voluptuous as vol
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -38,6 +39,7 @@ from .const import (
     STRATEGY_DROP,
     STRATEGY_QUEUE,
 )
+from .issues import async_update_out_of_credits_issue
 
 _LOGGER = logging.getLogger(__name__)
 _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
@@ -144,6 +146,7 @@ class OVHSMSNotifyEntity(NotifyEntity):
         self._recipients: list[str] = entry_data.get("recipients", [])
 
         self._attr_unique_id = f"ovh_sms_notify_{self._service_name}"
+        self._failure_notification_id = f"ovh_sms_send_failed_{self._service_name}"
         self._attr_name = f"OVH SMS ({self._service_name})"
 
         self._strategy: str = entry_data.get(
@@ -293,14 +296,26 @@ class OVHSMSNotifyEntity(NotifyEntity):
         except ovh.exceptions.APIError as err:
             _LOGGER.debug("OVH SMS: send error detail: %s", err)
             if is_out_of_credits(err):
-                raise HomeAssistantError(
-                    "OVH SMS: Not enough SMS credits — top up your SMS account "
+                async_update_out_of_credits_issue(self._hass, self._service_name, True)
+                reason = (
+                    "Not enough SMS credits — top up your SMS account "
                     "in the OVHcloud Manager"
-                ) from err
-            raise HomeAssistantError(
-                "OVH SMS: failed to send message — check your OVH account, "
-                "credits and API permissions"
-            ) from err
+                )
+            else:
+                reason = (
+                    "failed to send message — check your OVH account, "
+                    "credits and API permissions"
+                )
+            persistent_notification.async_create(
+                self._hass,
+                f"An SMS could not be sent: {reason}.",
+                title=f"OVH SMS — send failed ({self._service_name})",
+                notification_id=self._failure_notification_id,
+            )
+            raise HomeAssistantError(f"OVH SMS: {reason}") from err
+
+        persistent_notification.async_dismiss(self._hass, self._failure_notification_id)
+        async_update_out_of_credits_issue(self._hass, self._service_name, False)
 
         remaining = f", {self._limiter.remaining} slot(s) remaining" if self._limiter else ""
         _LOGGER.info(

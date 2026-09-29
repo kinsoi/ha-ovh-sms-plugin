@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import ovh
 import pytest
@@ -11,6 +11,7 @@ import voluptuous as vol
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import issue_registry as ir
 
 from .conftest import NOTIFY_ENTITY, SERVICE_NAME
 from custom_components.ovh_sms.const import (
@@ -24,6 +25,7 @@ from custom_components.ovh_sms.const import (
 )
 
 JOBS_PATH = f"/sms/{SERVICE_NAME}/jobs"
+NOTIFY_MODULE = "custom_components.ovh_sms.notify"
 
 
 async def _setup(hass: HomeAssistant, entry: MockConfigEntry, **data) -> None:
@@ -177,6 +179,44 @@ async def test_send_not_enough_credits(
             {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
             blocking=True,
         )
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"out_of_credits_{SERVICE_NAME}")
+
+
+async def test_send_failure_notification(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """A failed send raises a persistent notification, cleared by the next success."""
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00)"
+    )
+    with (
+        patch(f"{NOTIFY_MODULE}.persistent_notification.async_create") as create,
+        patch(f"{NOTIFY_MODULE}.persistent_notification.async_dismiss") as dismiss,
+    ):
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call(
+                "notify",
+                "send_message",
+                {"entity_id": NOTIFY_ENTITY, "message": "secret text"},
+                blocking=True,
+            )
+        create.assert_called_once()
+        text = create.call_args.args[1]
+        assert "Not enough SMS credits" in text
+        assert "secret text" not in text
+        assert "+33600000001" not in text
+        notification_id = create.call_args.kwargs["notification_id"]
+        assert notification_id == f"ovh_sms_send_failed_{SERVICE_NAME}"
+
+        mock_ovh_client.post.side_effect = None
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+        dismiss.assert_called_once_with(hass, notification_id)
 
 
 async def test_rate_limit_drop_does_not_log_pii(

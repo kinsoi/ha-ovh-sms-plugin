@@ -18,11 +18,15 @@ It works with an [OVHcloud SMS account](https://www.ovhcloud.com/en/sms/) (forme
 - **Multiple recipients** per message
 - **Custom sender ID** support
 - **Clear error reporting** — failed sends show up in the automation trace, as a Home Assistant notification, and as a **Repairs** alert when your SMS credits run out
-- **Multilingual UI** — English & French (setup, options, actions, errors and notifications)
+- **Multilingual UI** — English & French (setup, options, actions, errors and notifications); other languages fall back to English, and translations are welcome (`custom_components/ovh_sms/translations/`)
 
 ## Installation
 
 ### HACS (recommended)
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kinsoi&repository=ha-ovh-sms-plugin&category=integration)
+
+Or manually:
 
 1. Open HACS in Home Assistant
 2. Click **Integrations** → **⋮** → **Custom repositories**
@@ -54,7 +58,9 @@ A custom **sender** (alphanumeric, max 11 characters) must first be created and 
 
 ## Configuration
 
-Go to **Settings → Devices & Services → Add Integration → OVH SMS** and follow the wizard:
+[![Open your Home Assistant instance and start setting up OVH SMS.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ovh_sms)
+
+Or go to **Settings → Devices & Services → Add Integration → OVH SMS** and follow the wizard:
 
 1. **Credentials** — enter your API keys, service name, recipient(s) and optional sender
 2. **Rate limiting** — choose a strategy (drop / queue / disabled)
@@ -168,6 +174,10 @@ Go to **Settings → Devices & Services → OVH SMS → Configure**:
 | `drop` (default) | Excess messages are discarded | Repetitive alerts (motion, doors) |
 | `queue` | Excess messages wait in queue | Critical notifications (alarm, leak) |
 | `disabled` | No throttling | You manage rate limiting elsewhere |
+
+Each recipient counts as one SMS: with a limit of 10 SMS per 60 s, a message to 3 recipients uses 3 slots. A message with more recipients than the limit is refused.
+
+Any Home Assistant user who can control the notify entity can send SMS through it (billed to your OVHcloud account): keep rate limiting enabled if non-admin users have access to your instance.
 
 ## Errors, notifications and repairs
 

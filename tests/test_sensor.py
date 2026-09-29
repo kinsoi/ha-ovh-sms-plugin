@@ -59,3 +59,22 @@ async def test_out_of_credits_repair_issue(
     credits["value"] = 100
     await async_update_entity(hass, SENSOR_ENTITY)
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_sensor_handles_null_sms_response(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, config_entry: MockConfigEntry
+) -> None:
+    """A null smsResponse from OVH does not break the sensor."""
+    mock_ovh_client.get.side_effect = lambda path: (
+        [SERVICE_NAME]
+        if path == "/sms"
+        else {}
+        if path == "/me"
+        else {"creditsLeft": 5, "status": "enable", "smsResponse": None}
+    )
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    state = hass.states.get(SENSOR_ENTITY)
+    assert state.state == "5"
+    assert state.attributes["sms_response"] == "unknown"

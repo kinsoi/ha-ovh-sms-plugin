@@ -69,9 +69,9 @@
         },
         "data_description": {
           "rate_limit_strategy": "**drop** — messages excédentaires silencieusement ignorés (idéal pour les alertes répétitives)\n**queue** — messages excédentaires mis en attente et envoyés plus tard (idéal pour les alertes critiques)\n**disabled** — aucune limitation",
-          "rate_limit_max": "Nombre de SMS pouvant être envoyés dans la fenêtre de temps (1–1000). Ignoré si désactivé",
+          "rate_limit_max": "Nombre de SMS pouvant être envoyés dans la fenêtre de temps (1–1000) ; chaque destinataire compte pour un SMS. Ignoré si désactivé",
           "rate_limit_window": "Fenêtre glissante en secondes. Exemple : 10 SMS par 60s = max 10 SMS/minute (10–86400). Ignoré si désactivé",
-          "rate_limit_queue_size": "Nombre max de messages en attente avant que les plus anciens soient supprimés (1–500). Uniquement pour la stratégie **queue**"
+          "rate_limit_queue_size": "Nombre max de messages en attente ; les nouveaux messages sont rejetés quand la file est pleine (1–500). Uniquement pour la stratégie **queue**"
         }
       }
     },
@@ -80,7 +80,8 @@
       "invalid_auth": "Identifiants invalides. Vérifiez votre Application Key, Secret et Consumer Key.",
       "service_not_found": "Service SMS introuvable. Vérifiez le nom du service dans votre Espace OVH.",
       "invalid_recipients": "Numéros invalides — utilisez le format E.164 : +33612345678",
-      "unknown": "Une erreur inattendue s'est produite. Consultez les logs de Home Assistant."
+      "unknown": "Une erreur inattendue s'est produite. Consultez les logs de Home Assistant.",
+      "invalid_service_name": "Nom de service invalide : utilisez le nom affiché dans l'espace client OVHcloud, ex. sms-xx12345-1."
     },
     "abort": {
       "already_configured": "Ce service SMS est déjà configuré.",
@@ -138,7 +139,7 @@
         },
         "data_description": {
           "rate_limit_strategy": "**drop** — ignorer l'excédent · **queue** — mettre en attente · **disabled** — pas de limite",
-          "rate_limit_max": "SMS autorisés par fenêtre (1–1000)",
+          "rate_limit_max": "SMS autorisés par fenêtre (1–1000) ; chaque destinataire compte pour un SMS",
           "rate_limit_window": "Durée de la fenêtre en secondes (10–86400)",
           "rate_limit_queue_size": "Messages max en file d'attente (1–500, stratégie queue uniquement)"
         }
@@ -157,7 +158,8 @@
       "test_failed": "Échec de l'envoi du SMS. Vérifiez vos identifiants et votre compte OVH.",
       "unknown": "Erreur inattendue.",
       "already_configured": "Ce service SMS est déjà configuré dans une autre entrée.",
-      "not_enough_credits": "Crédits SMS insuffisants. Rechargez votre compte SMS dans l'espace client OVHcloud."
+      "not_enough_credits": "Crédits SMS insuffisants. Rechargez votre compte SMS dans l'espace client OVHcloud.",
+      "invalid_service_name": "Nom de service invalide : utilisez le nom affiché dans l'espace client OVHcloud, ex. sms-xx12345-1."
     },
     "abort": {
       "test_sent": "SMS de test envoyé à {sent} destinataire(s). Numéros refusés : {invalid}."
@@ -222,6 +224,9 @@
     },
     "no_default_recipients": {
       "message": "Aucun destinataire par défaut pour {service_name} : les SMS ne seront envoyés qu'avec l'action OVH SMS : Envoyer un SMS et son champ recipients."
+    },
+    "too_many_recipients": {
+      "message": "Ce SMS a {count} destinataires mais la limite d'envoi autorise {max} SMS par fenêtre : augmentez la limite dans les options de l'intégration ou réduisez le nombre de destinataires."
     }
   }
 }

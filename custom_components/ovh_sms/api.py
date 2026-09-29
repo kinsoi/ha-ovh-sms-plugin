@@ -3,6 +3,22 @@ from __future__ import annotations
 
 import ovh
 
+from .const import OVH_ENDPOINT, OVH_TIMEOUT
+
+
+def create_client(
+    application_key: str, application_secret: str, consumer_key: str
+) -> ovh.Client:
+    """Create an OVH API client (blocking: run it in the executor)."""
+    return ovh.Client(
+        endpoint=OVH_ENDPOINT,
+        application_key=application_key,
+        application_secret=application_secret,
+        consumer_key=consumer_key,
+        timeout=OVH_TIMEOUT,
+    )
+
+
 # OVH errors that retrying cannot fix (bad keys, revoked token, missing rights)
 _AUTH_ERRORS = (
     ovh.exceptions.InvalidKey,

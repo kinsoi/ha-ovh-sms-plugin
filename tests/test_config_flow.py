@@ -1,7 +1,7 @@
 """Tests for the OVH SMS config and options flows."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import ovh
 import pytest
@@ -309,3 +309,33 @@ async def test_options_credentials_errors(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": error}
+
+
+@pytest.mark.parametrize(
+    "service_name", ["sms-ab12345-1/../../me", "sms-ab?x=1", "sms ab", ""]
+)
+async def test_user_flow_rejects_invalid_service_name(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, service_name: str
+) -> None:
+    """Service names that could alter the OVH API path are refused."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**USER_INPUT, "service_name": service_name}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_SERVICE_NAME: "invalid_service_name"}
+    mock_ovh_client.get.assert_not_called()
+
+
+async def test_client_uses_short_timeout(
+    hass: HomeAssistant, mock_ovh_client: MagicMock
+) -> None:
+    """The OVH client is created with a short timeout (default is 180 s)."""
+    with patch("ovh.Client", return_value=mock_ovh_client) as client_cls:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert client_cls.call_args.kwargs["timeout"] <= 30

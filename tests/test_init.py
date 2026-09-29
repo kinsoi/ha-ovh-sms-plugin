@@ -120,3 +120,22 @@ async def test_yaml_import_with_recipients(
     assert len(entries) == 1
     assert entries[0].data[CONF_RECIPIENTS] == ["+33600000001", "+33600000002"]
     assert entries[0].state is ConfigEntryState.LOADED
+
+
+async def test_yaml_rejects_invalid_service_name(
+    hass: HomeAssistant, mock_ovh_client: MagicMock
+) -> None:
+    """A YAML service name with path characters is rejected."""
+    assert not await async_setup_component(
+        hass,
+        DOMAIN,
+        {
+            DOMAIN: {
+                "application_key": "ak",
+                "application_secret": "as",
+                "consumer_key": "ck",
+                "service_name": "sms-x/../me",
+            }
+        },
+    )
+    assert not hass.config_entries.async_entries(DOMAIN)

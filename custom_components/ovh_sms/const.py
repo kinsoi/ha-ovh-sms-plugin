@@ -4,6 +4,10 @@ DOMAIN = "ovh_sms"
 
 # Fixed endpoint
 OVH_ENDPOINT = "ovh-eu"
+# Seconds before an OVH API call is abandoned (python-ovh defaults to 180)
+OVH_TIMEOUT = 20
+# OVH service names look like "sms-ab12345-1"; they are used in API paths
+SERVICE_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 # Configuration keys
 CONF_APPLICATION_KEY = "application_key"

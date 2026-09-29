@@ -92,11 +92,17 @@ class SMSRateLimiter:
         while self._timestamps and self._timestamps[0] <= cutoff:
             self._timestamps.popleft()
 
-    def acquire(self) -> bool:
+    @property
+    def max_calls(self) -> int:
+        return self._max_calls
+
+    def acquire(self, count: int = 1) -> bool:
+        """Take `count` slots (one per SMS recipient) if they are all free."""
         self._evict()
-        if len(self._timestamps) >= self._max_calls:
+        if len(self._timestamps) + count > self._max_calls:
             return False
-        self._timestamps.append(time.monotonic())
+        now = time.monotonic()
+        self._timestamps.extend([now] * count)
         return True
 
     @property
@@ -104,12 +110,13 @@ class SMSRateLimiter:
         self._evict()
         return max(0, self._max_calls - len(self._timestamps))
 
-    @property
-    def seconds_until_available(self) -> float:
+    def seconds_until_available(self, count: int = 1) -> float:
+        """Seconds until `count` slots are free."""
         self._evict()
-        if len(self._timestamps) < self._max_calls:
+        excess = len(self._timestamps) + count - self._max_calls
+        if excess <= 0:
             return 0.0
-        return max(0.0, self._timestamps[0] + self._window - time.monotonic())
+        return max(0.0, self._timestamps[excess - 1] + self._window - time.monotonic())
 
 
 # ──────────────────────────────────────────────
@@ -204,11 +211,21 @@ class OVHSMSNotifyEntity(NotifyEntity):
             await self._async_send(message, list(targets), options)
             return
 
-        if self._limiter.acquire():
+        if len(targets) > self._limiter.max_calls:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="too_many_recipients",
+                translation_placeholders={
+                    "count": str(len(targets)),
+                    "max": str(self._limiter.max_calls),
+                },
+            )
+
+        if self._limiter.acquire(len(targets)):
             await self._async_send(message, list(targets), options)
             return
 
-        wait = self._limiter.seconds_until_available
+        wait = self._limiter.seconds_until_available(len(targets))
 
         if self._strategy == STRATEGY_DROP:
             _LOGGER.warning(
@@ -251,10 +268,11 @@ class OVHSMSNotifyEntity(NotifyEntity):
         while self._queue:
             if self._limiter is None:
                 break
-            wait = self._limiter.seconds_until_available
+            count = len(self._queue[0].targets)
+            wait = self._limiter.seconds_until_available(count)
             if wait > 0:
                 await asyncio.sleep(wait + 0.1)
-            if not self._limiter.acquire():
+            if not self._limiter.acquire(count):
                 continue
             msg = self._queue.popleft()
             age = time.monotonic() - msg.queued_at
@@ -321,9 +339,4 @@ class OVHSMSNotifyEntity(NotifyEntity):
             len(result.get("invalidReceivers", [])),
             remaining,
         )
-        _LOGGER.debug(
-            "OVH SMS sent detail — IDs: %s, valid: %s, invalid: %s",
-            result.get("ids", []),
-            result.get("validReceivers", []),
-            result.get("invalidReceivers", []),
-        )
+        _LOGGER.debug("OVH SMS sent — job IDs: %s", result.get("ids", []))

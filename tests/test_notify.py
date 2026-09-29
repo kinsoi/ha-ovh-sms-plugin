@@ -277,7 +277,7 @@ async def test_rate_limit_drop_does_not_log_pii(
         entry,
         **{
             CONF_RATE_LIMIT_STRATEGY: STRATEGY_DROP,
-            CONF_RATE_LIMIT_MAX: 1,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
             CONF_RATE_LIMIT_WINDOW: 60,
         },
     )
@@ -295,6 +295,63 @@ async def test_rate_limit_drop_does_not_log_pii(
     assert "+33600000001" not in visible
 
 
+async def test_rate_limit_counts_recipients(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Each recipient uses one slot: many recipients cannot bypass the limit."""
+    await _setup(
+        hass,
+        entry,
+        **{
+            CONF_RATE_LIMIT_STRATEGY: STRATEGY_DROP,
+            CONF_RATE_LIMIT_MAX: 3,
+            CONF_RATE_LIMIT_WINDOW: 60,
+        },
+    )
+    two = ["+33611111111", "+33622222222"]
+    for _ in range(2):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_sms",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hi", "recipients": two},
+            blocking=True,
+        )
+    assert mock_ovh_client.post.call_count == 1  # 2 + 2 > 3: second one dropped
+
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_sms",
+            {
+                "entity_id": NOTIFY_ENTITY,
+                "message": "Hi",
+                "recipients": [f"+3361111111{i}" for i in range(4)],
+            },
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "too_many_recipients"
+    assert mock_ovh_client.post.call_count == 1
+
+
+async def test_debug_logs_do_not_contain_phone_numbers(
+    hass: HomeAssistant,
+    mock_ovh_client: MagicMock,
+    entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Even DEBUG logs (often pasted in issues) do not contain phone numbers."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.ovh_sms")
+    await _setup(hass, entry)
+    await hass.services.async_call(
+        DOMAIN,
+        "send_sms",
+        {"entity_id": NOTIFY_ENTITY, "message": "Hi", "recipients": ["+33612345678"]},
+        blocking=True,
+    )
+    assert "+33612345678" not in caplog.text
+    assert "+33600000001" not in caplog.text
+
+
 async def test_rate_limit_queue_sends_later(
     hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
 ) -> None:
@@ -304,7 +361,7 @@ async def test_rate_limit_queue_sends_later(
         entry,
         **{
             CONF_RATE_LIMIT_STRATEGY: STRATEGY_QUEUE,
-            CONF_RATE_LIMIT_MAX: 1,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
             CONF_RATE_LIMIT_WINDOW: 1,
         },
     )
@@ -330,7 +387,7 @@ async def test_unload_cancels_queue(
         entry,
         **{
             CONF_RATE_LIMIT_STRATEGY: STRATEGY_QUEUE,
-            CONF_RATE_LIMIT_MAX: 1,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
             CONF_RATE_LIMIT_WINDOW: 3600,
         },
     )

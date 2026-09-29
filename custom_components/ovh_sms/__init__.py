@@ -14,7 +14,7 @@ from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .api import is_auth_error
+from .api import create_client, is_auth_error
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -32,7 +32,7 @@ from .const import (
     DEFAULT_RATE_LIMIT_WINDOW,
     DEFAULT_SENDER,
     DOMAIN,
-    OVH_ENDPOINT,
+    SERVICE_NAME_PATTERN,
     STRATEGY_DISABLED,
     STRATEGY_DROP,
     STRATEGY_QUEUE,
@@ -51,7 +51,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_APPLICATION_KEY): cv.string,
                 vol.Required(CONF_APPLICATION_SECRET): cv.string,
                 vol.Required(CONF_CONSUMER_KEY): cv.string,
-                vol.Required(CONF_SERVICE_NAME): cv.string,
+                vol.Required(CONF_SERVICE_NAME): vol.All(
+                    cv.string, vol.Match(SERVICE_NAME_PATTERN)
+                ),
                 vol.Optional(CONF_RECIPIENTS, default=[]): vol.All(
                     cv.ensure_list_csv, [cv.string]
                 ),
@@ -116,16 +118,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OVH SMS from a config entry."""
     conf = entry.data
 
-    # Create OVH client
-    def _create_client() -> ovh.Client:
-        return ovh.Client(
-            endpoint=OVH_ENDPOINT,
-            application_key=conf[CONF_APPLICATION_KEY],
-            application_secret=conf[CONF_APPLICATION_SECRET],
-            consumer_key=conf[CONF_CONSUMER_KEY],
-        )
-
-    client = await hass.async_add_executor_job(_create_client)
+    client = await hass.async_add_executor_job(
+        create_client,
+        conf[CONF_APPLICATION_KEY],
+        conf[CONF_APPLICATION_SECRET],
+        conf[CONF_CONSUMER_KEY],
+    )
 
     # Check if config was saved with validation skipped
     config_valid = conf.get("config_validated", True)

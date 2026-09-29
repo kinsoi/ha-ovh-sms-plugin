@@ -20,9 +20,12 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
-from .api import is_auth_error, is_out_of_credits
+from .api import create_client, is_auth_error, is_out_of_credits
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -40,7 +43,7 @@ from .const import (
     DEFAULT_RATE_LIMIT_WINDOW,
     DEFAULT_SENDER,
     DOMAIN,
-    OVH_ENDPOINT,
+    SERVICE_NAME_PATTERN,
     STRATEGY_DISABLED,
     STRATEGY_DROP,
     STRATEGY_QUEUE,
@@ -52,11 +55,14 @@ _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 
 # ── Schemas ───────────────────────────────────
 
+_PASSWORD = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+_SERVICE_NAME_RE = re.compile(SERVICE_NAME_PATTERN)
+
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_APPLICATION_KEY): str,
-        vol.Required(CONF_APPLICATION_SECRET): str,
-        vol.Required(CONF_CONSUMER_KEY): str,
+        vol.Required(CONF_APPLICATION_SECRET): _PASSWORD,
+        vol.Required(CONF_CONSUMER_KEY): _PASSWORD,
         vol.Required(CONF_SERVICE_NAME): str,
         vol.Required(CONF_RECIPIENTS): str,
         vol.Optional(CONF_SENDER, default=DEFAULT_SENDER): str,
@@ -102,15 +108,12 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
     """Validate user input by connecting to the OVH API."""
-    def _create_client() -> ovh.Client:
-        return ovh.Client(
-            endpoint=OVH_ENDPOINT,
-            application_key=data[CONF_APPLICATION_KEY],
-            application_secret=data[CONF_APPLICATION_SECRET],
-            consumer_key=data[CONF_CONSUMER_KEY],
-        )
-
-    client = await hass.async_add_executor_job(_create_client)
+    client = await hass.async_add_executor_job(
+        create_client,
+        data[CONF_APPLICATION_KEY],
+        data[CONF_APPLICATION_SECRET],
+        data[CONF_CONSUMER_KEY],
+    )
 
     try:
         me = await hass.async_add_executor_job(client.get, "/me")
@@ -187,6 +190,19 @@ class OVHSMSConfigFlow(ConfigFlow, domain=DOMAIN):
                         "ovh_manager_url": "https://www.ovh.com/manager/",
                     },
                     errors={CONF_RECIPIENTS: "invalid_recipients"},
+                )
+
+            if not _SERVICE_NAME_RE.match(user_input[CONF_SERVICE_NAME]):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=self.add_suggested_values_to_schema(
+                        STEP_USER_DATA_SCHEMA, user_input
+                    ),
+                    description_placeholders={
+                        "create_token_url": "https://eu.api.ovh.com/createToken/",
+                        "ovh_manager_url": "https://www.ovh.com/manager/",
+                    },
+                    errors={CONF_SERVICE_NAME: "invalid_service_name"},
                 )
 
             await self.async_set_unique_id(user_input[CONF_SERVICE_NAME])
@@ -370,6 +386,8 @@ class OVHSMSOptionsFlow(OptionsFlow):
             invalid = _invalid_recipients(merged.get(CONF_RECIPIENTS, ""))
             if invalid:
                 errors[CONF_RECIPIENTS] = "invalid_recipients"
+            elif not _SERVICE_NAME_RE.match(merged[CONF_SERVICE_NAME]):
+                errors[CONF_SERVICE_NAME] = "invalid_service_name"
             elif any(
                 entry.unique_id == merged[CONF_SERVICE_NAME]
                 and entry.entry_id != self._config_entry.entry_id
@@ -386,6 +404,7 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 except ServiceNotFound:
                     errors[CONF_SERVICE_NAME] = "service_not_found"
                 except Exception:
+                    _LOGGER.exception("Unexpected exception")
                     errors["base"] = "unknown"
                 else:
                     new_data = {**merged, "config_validated": True}
@@ -415,8 +434,8 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     CONF_APPLICATION_KEY,
                     default=current.get(CONF_APPLICATION_KEY, ""),
                 ): str,
-                vol.Optional(CONF_APPLICATION_SECRET, default=""): str,
-                vol.Optional(CONF_CONSUMER_KEY, default=""): str,
+                vol.Optional(CONF_APPLICATION_SECRET, default=""): _PASSWORD,
+                vol.Optional(CONF_CONSUMER_KEY, default=""): _PASSWORD,
                 vol.Required(
                     CONF_SERVICE_NAME,
                     default=current.get(CONF_SERVICE_NAME, ""),
@@ -527,14 +546,11 @@ class OVHSMSOptionsFlow(OptionsFlow):
             message = user_input.get("message", "Test SMS from Home Assistant")
 
             def _send() -> dict:
-                def _make_client() -> ovh.Client:
-                    return ovh.Client(
-                        endpoint=OVH_ENDPOINT,
-                        application_key=current[CONF_APPLICATION_KEY],
-                        application_secret=current[CONF_APPLICATION_SECRET],
-                        consumer_key=current[CONF_CONSUMER_KEY],
-                    )
-                client = _make_client()
+                client = create_client(
+                    current[CONF_APPLICATION_KEY],
+                    current[CONF_APPLICATION_SECRET],
+                    current[CONF_CONSUMER_KEY],
+                )
                 payload: dict[str, Any] = {
                     "message": message,
                     "receivers": recipients,
@@ -557,7 +573,6 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     "OVH SMS test: sent to %d recipient(s), %d invalid",
                     len(valid), len(invalid),
                 )
-                _LOGGER.debug("OVH SMS test detail — valid: %s, invalid: %s", valid, invalid)
                 return self.async_abort(
                     reason="test_sent",
                     description_placeholders={

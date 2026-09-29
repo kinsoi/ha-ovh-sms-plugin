@@ -84,7 +84,7 @@ class OVHSMSCreditSensor(SensorEntity):
                 "service_name": self._service_name,
                 "status": info.get("status"),
                 "credits_left": info.get("creditsLeft"),
-                "sms_response": info.get("smsResponse", {}).get(
+                "sms_response": (info.get("smsResponse") or {}).get(
                     "responseType", "unknown"
                 ),
                 "description": info.get("description", ""),

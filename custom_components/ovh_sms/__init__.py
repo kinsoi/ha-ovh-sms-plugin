@@ -10,9 +10,11 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from .api import create_client, is_auth_error
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -30,11 +32,12 @@ from .const import (
     DEFAULT_RATE_LIMIT_WINDOW,
     DEFAULT_SENDER,
     DOMAIN,
-    OVH_ENDPOINT,
+    SERVICE_NAME_PATTERN,
     STRATEGY_DISABLED,
     STRATEGY_DROP,
     STRATEGY_QUEUE,
 )
+from .issues import async_update_out_of_credits_issue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +51,12 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_APPLICATION_KEY): cv.string,
                 vol.Required(CONF_APPLICATION_SECRET): cv.string,
                 vol.Required(CONF_CONSUMER_KEY): cv.string,
-                vol.Required(CONF_SERVICE_NAME): cv.string,
+                vol.Required(CONF_SERVICE_NAME): vol.All(
+                    cv.string, vol.Match(SERVICE_NAME_PATTERN)
+                ),
+                vol.Optional(CONF_RECIPIENTS, default=[]): vol.All(
+                    cv.ensure_list_csv, [cv.string]
+                ),
                 vol.Optional(CONF_SENDER, default=DEFAULT_SENDER): cv.string,
                 vol.Optional(
                     CONF_RATE_LIMIT_STRATEGY, default=DEFAULT_RATE_LIMIT_STRATEGY
@@ -110,47 +118,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OVH SMS from a config entry."""
     conf = entry.data
 
-    # Create OVH client
-    def _create_client() -> ovh.Client:
-        return ovh.Client(
-            endpoint=OVH_ENDPOINT,
-            application_key=conf[CONF_APPLICATION_KEY],
-            application_secret=conf[CONF_APPLICATION_SECRET],
-            consumer_key=conf[CONF_CONSUMER_KEY],
-        )
-
-    client = await hass.async_add_executor_job(_create_client)
+    client = await hass.async_add_executor_job(
+        create_client,
+        conf[CONF_APPLICATION_KEY],
+        conf[CONF_APPLICATION_SECRET],
+        conf[CONF_CONSUMER_KEY],
+    )
 
     # Check if config was saved with validation skipped
     config_valid = conf.get("config_validated", True)
 
     if config_valid:
-        # Verify API connection
+        # Verify API connection and that the SMS service exists
         try:
-            me = await hass.async_add_executor_job(client.get, "/me")
-            _LOGGER.info(
-                "OVH SMS: authenticated as %s %s",
-                me.get("firstname", ""),
-                me.get("name", ""),
-            )
-        except ovh.exceptions.APIError as err:
-            _LOGGER.debug("OVH SMS: API authentication error detail: %s", err)
-            _LOGGER.error("OVH SMS: API authentication failed — check your credentials")
-            return False
-
-        # Verify SMS service exists
-        try:
+            await hass.async_add_executor_job(client.get, "/me")
             sms_accounts = await hass.async_add_executor_job(client.get, "/sms")
-            if conf[CONF_SERVICE_NAME] not in sms_accounts:
-                _LOGGER.error(
-                    "OVH SMS: service '%s' not found — check your service name in OVH Manager",
-                    conf[CONF_SERVICE_NAME],
-                )
-                return False
         except ovh.exceptions.APIError as err:
-            _LOGGER.debug("OVH SMS: SMS service list error detail: %s", err)
-            _LOGGER.error("OVH SMS: unable to list SMS services — check your API permissions")
-            return False
+            _LOGGER.debug("OVH SMS: API error detail: %s", err)
+            if is_auth_error(err):
+                raise ConfigEntryError(
+                    translation_domain=DOMAIN, translation_key="auth_failed"
+                ) from err
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN, translation_key="cannot_connect"
+            ) from err
+
+        if conf[CONF_SERVICE_NAME] not in sms_accounts:
+            raise ConfigEntryError(
+                translation_domain=DOMAIN,
+                translation_key="service_not_found",
+                translation_placeholders={"service_name": conf[CONF_SERVICE_NAME]},
+            )
     else:
         _LOGGER.warning(
             "OVH SMS: configuration was saved without validation. "
@@ -190,3 +188,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up repair issues when the entry is deleted."""
+    async_update_out_of_credits_issue(hass, entry.data[CONF_SERVICE_NAME], False)

@@ -1,0 +1,45 @@
+send_sms:
+  target:
+    entity:
+      integration: ovh_sms
+      domain: notify
+  fields:
+    message:
+      required: true
+      example: "Motion detected at the front door!"
+      selector:
+        text:
+          multiline: true
+    recipients:
+      example: '["+33612345678"]'
+      selector:
+        text:
+          type: tel
+          multiple: true
+    sender:
+      example: "MyHome"
+      selector:
+        text:
+    priority:
+      selector:
+        select:
+          options:
+            - label: "High"
+              value: "high"
+            - label: "Medium"
+              value: "medium"
+            - label: "Low"
+              value: "low"
+            - label: "Very low"
+              value: "veryLow"
+    coding:
+      selector:
+        select:
+          translation_key: coding
+          options:
+            - "7bit"
+            - "8bit"
+    no_stop_clause:
+      default: true
+      selector:
+        boolean:

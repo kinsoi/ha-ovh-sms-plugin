@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .issues import async_update_out_of_credits_issue
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +76,15 @@ class OVHSMSCreditSensor(SensorEntity):
 
             self._attr_native_value = info.get("creditsLeft", 0)
             self._attr_available = True
+            async_update_out_of_credits_issue(
+                self._hass, self._service_name, self._attr_native_value <= 0
+            )
 
             self._extra_attrs = {
                 "service_name": self._service_name,
                 "status": info.get("status"),
                 "credits_left": info.get("creditsLeft"),
-                "sms_response": info.get("smsResponse", {}).get(
+                "sms_response": (info.get("smsResponse") or {}).get(
                     "responseType", "unknown"
                 ),
                 "description": info.get("description", ""),

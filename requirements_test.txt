@@ -1,0 +1,2 @@
+pytest-homeassistant-custom-component==0.13.367
+ovh>=1.1.0,<2.0.0

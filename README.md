@@ -1,24 +1,32 @@
-# OVH SMS for Home Assistant
+# OVH SMS for Home Assistant (OVHcloud SMS notifications)
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/kinsoi/ha-ovh-sms-plugin.svg)](https://github.com/kinsoi/ha-ovh-sms-plugin/releases)
-[![HA version](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-blue)](https://www.home-assistant.io/)
+[![HA version](https://img.shields.io/badge/Home%20Assistant-2024.5%2B-blue)](https://www.home-assistant.io/)
 
-Send SMS notifications via the [OVHcloud SMS API](https://api.ovh.com/console/#/sms) from Home Assistant.
+**OVH SMS** is a Home Assistant custom integration (installable with HACS) that sends **SMS notifications through the OVHcloud SMS API** (`/sms/{serviceName}/jobs`). Use it to receive text messages from your automations — alarm, intrusion, water leak, power outage, door left open — on any mobile phone, without relying on an internet messaging app.
+
+It works with an [OVHcloud SMS account](https://www.ovhcloud.com/en/sms/) (formerly OVH Telecom SMS) in the **EU region** (`ovh-eu` API endpoint).
 
 ## Features
 
-- **Send SMS** from automations via the `notify.send_message` action
+- **Send SMS** from automations via the standard `notify.send_message` action
+- **`ovh_sms.send_sms` action** for per-message recipients, sender, priority and encoding
 - **Credit sensor** showing remaining SMS credits
 - **Rate limiting** with 3 strategies: drop, queue, or disabled
 - **Configurable via UI** — no YAML required
 - **Multiple recipients** per message
 - **Custom sender ID** support
-- **Multilingual UI** — English & French
+- **Clear error reporting** — failed sends show up in the automation trace, as a Home Assistant notification, and as a **Repairs** alert when your SMS credits run out
+- **Multilingual UI** — English & French (setup, options, actions, errors and notifications); other languages fall back to English, and translations are welcome (`custom_components/ovh_sms/translations/`)
 
 ## Installation
 
 ### HACS (recommended)
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kinsoi&repository=ha-ovh-sms-plugin&category=integration)
+
+Or manually:
 
 1. Open HACS in Home Assistant
 2. Click **Integrations** → **⋮** → **Custom repositories**
@@ -46,9 +54,13 @@ Copy the `custom_components/ovh_sms` folder into your `config/custom_components/
 4. Note the 3 keys: Application Key, Application Secret, Consumer Key
 5. Find your **service name** in OVH Manager → Telecom → SMS (e.g. `sms-xx12345-1`)
 
+A custom **sender** (alphanumeric, max 11 characters) must first be created and validated by OVHcloud in the OVH Manager (Telecom → SMS → your service → Senders). Leave the sender empty to use an OVH short number instead.
+
 ## Configuration
 
-Go to **Settings → Devices & Services → Add Integration → OVH SMS** and follow the wizard:
+[![Open your Home Assistant instance and start setting up OVH SMS.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ovh_sms)
+
+Or go to **Settings → Devices & Services → Add Integration → OVH SMS** and follow the wizard:
 
 1. **Credentials** — enter your API keys, service name, recipient(s) and optional sender
 2. **Rate limiting** — choose a strategy (drop / queue / disabled)
@@ -84,34 +96,28 @@ data:
   message: "Hello from Home Assistant!"
 ```
 
-### Send to specific recipients (override defaults)
+`notify.send_message` only accepts `message` (and `title`, which SMS ignores) and always sends to the recipients configured in the integration.
+
+### Send to specific recipients / advanced options
+
+Use the `ovh_sms.send_sms` action (**OVH SMS: Send SMS** in the automation editor). Every field except `message` is optional:
 
 ```yaml
-action: notify.send_message
-target:
-  entity_id: notify.ovh_sms_sms_xx12345_1
-data:
-  message: "Hello!"
-  data:
-    target:
-      - "+33612345678"
-      - "+33698765432"
-```
-
-### Advanced options
-
-```yaml
-action: notify.send_message
+action: ovh_sms.send_sms
 target:
   entity_id: notify.ovh_sms_sms_xx12345_1
 data:
   message: "Alarm triggered!"
-  data:
-    sender: "MyHome"          # override default sender (max 11 chars)
-    no_stop_clause: true      # false = add STOP clause
-    priority: "high"          # high | medium | low | veryLow
-    coding: "7bit"            # 7bit (160 chars) | unicode (accents, 70 chars)
+  recipients:               # defaults to the configured recipients
+    - "+33612345678"
+    - "+33698765432"
+  sender: "MyHome"          # override default sender (max 11 chars)
+  no_stop_clause: true      # false = add STOP clause
+  priority: "high"          # high | medium | low | veryLow
+  coding: "8bit"            # 7bit (GSM, 160 chars) | 8bit (Unicode, 70 chars)
 ```
+
+Phone numbers must use the E.164 format (`+` then country code and number). Invalid input is rejected before anything is sent.
 
 ### Automation example — intrusion alert
 
@@ -158,7 +164,7 @@ Go to **Settings → Devices & Services → OVH SMS → Configure**:
 |--------|-------------|
 | API credentials & sender | Update keys, service name, recipients or sender |
 | Rate limiting | Adjust throttling strategy |
-| Send a test SMS | Send a test to your configured recipients |
+| Send a test SMS | Send a test to your configured recipients; the result is shown in the dialog |
 | 📖 How to use | Usage guide with your entity ID and YAML examples |
 
 ## Rate Limiting
@@ -169,6 +175,30 @@ Go to **Settings → Devices & Services → OVH SMS → Configure**:
 | `queue` | Excess messages wait in queue | Critical notifications (alarm, leak) |
 | `disabled` | No throttling | You manage rate limiting elsewhere |
 
+Each recipient counts as one SMS: with a limit of 10 SMS per 60 s, a message to 3 recipients uses 3 slots. A message with more recipients than the limit is refused.
+
+Any Home Assistant user who can control the notify entity can send SMS through it (billed to your OVHcloud account): keep rate limiting enabled if non-admin users have access to your instance.
+
+## Errors, notifications and repairs
+
+| Situation | What you see |
+|-----------|--------------|
+| An SMS cannot be sent (OVH error, no credits…) | The action fails with a clear message (visible in the automation **trace**), and a notification appears in **Notifications**. It is replaced, not stacked, and removed after the next successful SMS |
+| The SMS account has no credits left | A **Settings → Repairs** alert, cleared automatically once credits are available (checked every 30 minutes, or after the next successful SMS) |
+| Invalid API keys or missing token rights | The integration shows a setup error; update the keys in **Configure → API credentials** |
+| OVH API unreachable at startup | Home Assistant retries the setup automatically |
+| Message dropped by the rate limiter | A warning in the logs (no phone number or message content is logged) |
+
+To troubleshoot, enable debug logs:
+
+```yaml
+logger:
+  logs:
+    custom_components.ovh_sms: debug
+```
+
+Debug logs include the OVH error details and the recipient numbers; do not share them publicly without removing personal data.
+
 ## YAML configuration (legacy)
 
 ```yaml
@@ -177,11 +207,22 @@ ovh_sms:
   application_secret: "YOUR_AS"
   consumer_key: "YOUR_CK"
   service_name: "sms-xx12345-1"
+  recipients:                       # optional: default recipients (E.164)
+    - "+33612345678"
   sender: ""                        # optional: alphanumeric sender ID
   rate_limit_strategy: "drop"       # drop | queue | disabled
   rate_limit_max: 10                # max SMS per window
   rate_limit_window: 60             # window in seconds
   rate_limit_queue_size: 50         # max queued messages (queue strategy only)
+```
+
+## Development
+
+Tests use [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) and never call the real OVH API:
+
+```bash
+pip install -r requirements_test.txt
+python -m pytest
 ```
 
 ## License

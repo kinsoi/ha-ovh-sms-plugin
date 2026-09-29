@@ -21,6 +21,12 @@
         "queue": "Queue — delay excess messages",
         "disabled": "Disabled — no throttling"
       }
+    },
+    "coding": {
+      "options": {
+        "7bit": "7bit — GSM, 160 chars",
+        "8bit": "8bit — Unicode, 70 chars"
+      }
     }
   },
   "config": {
@@ -47,7 +53,7 @@
       },
       "validation_failed": {
         "title": "OVH SMS — Validation Failed",
-        "description": "Could not validate your configuration:\n\n**{error_detail}**\n\nThis can happen if your keys are wrong, the service name doesn't exist, or OVH API is temporarily unreachable.",
+        "description": "Could not validate your configuration (see the error above).\n\nThis can happen if your keys are wrong, the service name doesn't exist, or the OVH API is temporarily unreachable.",
         "data": {
           "action": "What would you like to do?"
         }
@@ -63,9 +69,9 @@
         },
         "data_description": {
           "rate_limit_strategy": "**drop** — excess messages silently discarded (best for repetitive alerts)\n**queue** — excess messages wait and send later (best for critical alerts)\n**disabled** — no throttling at all",
-          "rate_limit_max": "How many SMS can be sent within the time window (1–1000). Ignored when disabled",
+          "rate_limit_max": "How many SMS can be sent within the time window (1–1000); each recipient counts as one SMS. Ignored when disabled",
           "rate_limit_window": "Sliding window in seconds. Example: 10 SMS per 60s = max 10 SMS/minute (10–86400). Ignored when disabled",
-          "rate_limit_queue_size": "Max messages waiting in line before oldest are dropped (1–500). Only used with **queue** strategy"
+          "rate_limit_queue_size": "Max messages waiting in line; new messages are dropped when the queue is full (1–500). Only used with **queue** strategy"
         }
       }
     },
@@ -74,7 +80,8 @@
       "invalid_auth": "Invalid credentials. Double-check your Application Key, Secret and Consumer Key.",
       "service_not_found": "SMS service not found. Verify the service name in your OVH Manager.",
       "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
-      "unknown": "An unexpected error occurred. Check Home Assistant logs."
+      "unknown": "An unexpected error occurred. Check Home Assistant logs.",
+      "invalid_service_name": "Invalid service name: use the name shown in the OVHcloud Manager, e.g. sms-xx12345-1."
     },
     "abort": {
       "already_configured": "This SMS service is already configured.",
@@ -132,14 +139,14 @@
         },
         "data_description": {
           "rate_limit_strategy": "**drop** — discard excess · **queue** — delay excess · **disabled** — no limit",
-          "rate_limit_max": "SMS allowed per window (1–1000)",
+          "rate_limit_max": "SMS allowed per window (1–1000); each recipient counts as one SMS",
           "rate_limit_window": "Window duration in seconds (10–86400)",
           "rate_limit_queue_size": "Max queued messages (1–500, queue strategy only)"
         }
       },
       "help": {
         "title": "OVH SMS — How to use",
-        "description": "## Your notify entity\n\n**`{entity_id}`**\n\n---\n\n## Trigger from an automation\n\nIn the automation editor: *Actions* → *Call service* → *Notify: Send message* → select **`{entity_id}`**.\n\nOr in YAML:\n\n```yaml\nservice: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Motion detected at front door!\"\n```\n\n---\n\n## Send to a dynamic recipient\n\nNo default recipients? Pass a `target` number at call time:\n\n```yaml\nservice: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Hello!\"\n  target: \"+33612345678\"\n```\n\nNumbers must be in **E.164 format** (`+` followed by country code and number, e.g. `+33612345678`).\n\n---\n\n## Advanced message parameters\n\n| Parameter | Values | Description |\n|---|---|---|\n| `sender` | text (max 11 chars) | Override the default sender |\n| `priority` | `high` `medium` `low` `veryLow` | Message priority |\n| `coding` | `7bit` `unicode` | `7bit` = 160 chars · `unicode` = accents, 70 chars |\n| `no_stop_clause` | `true` / `false` | `false` adds a STOP clause (default: `true`) |\n\n**SMS service:** `{service_name}`"
+        "description": "## Your notify entity\n\n**`{entity_id}`**\n\n---\n\n## Simple notification\n\nSend to the default recipients with the standard notify action:\n\n```yaml\naction: notify.send_message\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Motion detected at front door!\"\n```\n\n---\n\n## Custom recipients and options\n\nUse the **OVH SMS: Send SMS** action (`ovh_sms.send_sms`):\n\n```yaml\naction: ovh_sms.send_sms\ntarget:\n  entity_id: {entity_id}\ndata:\n  message: \"Hello!\"\n  recipients:\n    - \"+33612345678\"\n  sender: \"MyHome\"\n  priority: high\n  coding: 8bit\n```\n\nNumbers must be in **E.164 format** (`+` followed by country code and number, e.g. `+33612345678`).\n\n| Field | Values | Description |\n|---|---|---|\n| `recipients` | list of E.164 numbers | Defaults to the configured recipients |\n| `sender` | text (max 11 chars) | Override the default sender |\n| `priority` | `high` `medium` `low` `veryLow` | Message priority |\n| `coding` | `7bit` `8bit` | `7bit` = 160 chars · `8bit` = Unicode, 70 chars |\n| `no_stop_clause` | `true` / `false` | `false` adds a STOP clause (default: `true`) |\n\n**SMS service:** `{service_name}`"
       }
     },
     "error": {
@@ -149,7 +156,77 @@
       "no_recipients": "No recipients configured. Go to API credentials to add phone numbers.",
       "invalid_recipients": "Invalid phone numbers — use E.164 format: +33612345678",
       "test_failed": "SMS send failed. Check your credentials and OVH account.",
-      "unknown": "Unexpected error."
+      "unknown": "Unexpected error.",
+      "already_configured": "This SMS service is already configured in another entry.",
+      "not_enough_credits": "Not enough SMS credits. Top up your SMS account in the OVHcloud Manager.",
+      "invalid_service_name": "Invalid service name: use the name shown in the OVHcloud Manager, e.g. sms-xx12345-1."
+    },
+    "abort": {
+      "test_sent": "Test SMS sent to {sent} recipient(s). Rejected numbers: {invalid}."
+    }
+  },
+  "services": {
+    "send_sms": {
+      "name": "Send SMS",
+      "description": "Sends an SMS through OVHcloud, with optional recipients and OVH-specific options.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Text of the SMS."
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Phone numbers in E.164 format (e.g. +33612345678). Defaults to the recipients configured in the integration."
+        },
+        "sender": {
+          "name": "Sender",
+          "description": "Alphanumeric sender ID (max 11 characters), overrides the default sender. Must be allowed on your OVH account."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Delivery priority."
+        },
+        "coding": {
+          "name": "Coding",
+          "description": "7bit: GSM alphabet, 160 characters per SMS. 8bit: Unicode (accents, emoji), 70 characters per SMS."
+        },
+        "no_stop_clause": {
+          "name": "No STOP clause",
+          "description": "Disable the STOP clause (only allowed for non-commercial messages)."
+        }
+      }
+    }
+  },
+  "issues": {
+    "out_of_credits": {
+      "title": "OVH SMS: no credits left on {service_name}",
+      "description": "The OVHcloud SMS account **{service_name}** has no credits left, so SMS notifications are not being sent.\n\nTop up the account in the OVHcloud Manager (Telecom → SMS → {service_name}).\n\nThis alert disappears automatically once credits are available again (checked every 30 minutes, or at the next successful SMS)."
+    }
+  },
+  "exceptions": {
+    "no_recipients": {
+      "message": "No recipients: set default recipients in the integration options, or pass `recipients` to the OVH SMS: Send SMS action."
+    },
+    "out_of_credits": {
+      "message": "Not enough SMS credits on {service_name}: top up your SMS account in the OVHcloud Manager."
+    },
+    "send_failed": {
+      "message": "The SMS could not be sent by {service_name}: check your OVH account, credits and API permissions."
+    },
+    "auth_failed": {
+      "message": "OVH API authentication failed: check your credentials and the token access rules."
+    },
+    "cannot_connect": {
+      "message": "The OVH API is unreachable, setup will be retried."
+    },
+    "service_not_found": {
+      "message": "SMS service {service_name} not found: check the service name in the OVHcloud Manager."
+    },
+    "no_default_recipients": {
+      "message": "No default recipients configured for {service_name}: SMS will only be sent with the OVH SMS: Send SMS action and its recipients field."
+    },
+    "too_many_recipients": {
+      "message": "This SMS has {count} recipients but the rate limit allows {max} SMS per window: raise the limit in the integration options or send to fewer recipients."
     }
   }
 }

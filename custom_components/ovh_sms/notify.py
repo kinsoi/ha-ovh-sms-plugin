@@ -3,35 +3,59 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from functools import partial
 import logging
 import re
 import time
 from typing import Any
 
 import ovh
+import voluptuous as vol
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .api import is_out_of_credits
 from .const import (
     ATTR_CODING,
     ATTR_NO_STOP_CLAUSE,
     ATTR_PRIORITY,
+    ATTR_RECIPIENTS,
     ATTR_SENDER,
+    CODINGS,
     DEFAULT_RATE_LIMIT_MAX,
     DEFAULT_RATE_LIMIT_QUEUE_SIZE,
     DEFAULT_RATE_LIMIT_STRATEGY,
     DEFAULT_RATE_LIMIT_WINDOW,
     DOMAIN,
+    PRIORITIES,
+    SERVICE_SEND_SMS,
     STRATEGY_DISABLED,
     STRATEGY_DROP,
     STRATEGY_QUEUE,
 )
+from .issues import async_update_out_of_credits_issue
+from .notifications import async_notify
 
 _LOGGER = logging.getLogger(__name__)
 _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
+_E164_NUMBER = vol.All(
+    cv.string, vol.Match(_E164_RE, msg="must be in E.164 format, e.g. +33612345678")
+)
+
+SEND_SMS_SCHEMA: dict[vol.Marker, Any] = {
+    vol.Required("message"): cv.string,
+    vol.Optional(ATTR_RECIPIENTS): vol.All(cv.ensure_list, [_E164_NUMBER]),
+    vol.Optional(ATTR_SENDER): vol.All(cv.string, vol.Length(min=1, max=11)),
+    vol.Optional(ATTR_PRIORITY): vol.In(PRIORITIES),
+    vol.Optional(ATTR_CODING): vol.In(CODINGS),
+    vol.Optional(ATTR_NO_STOP_CLAUSE): cv.boolean,
+}
 
 
 # ──────────────────────────────────────────────
@@ -45,6 +69,11 @@ async def async_setup_entry(
     """Set up OVH SMS notify entity from a config entry."""
     entry_data = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([OVHSMSNotifyEntity(hass, entry, entry_data)])
+
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_SEND_SMS, SEND_SMS_SCHEMA, "async_send_sms"
+    )
 
 
 # ──────────────────────────────────────────────
@@ -63,11 +92,17 @@ class SMSRateLimiter:
         while self._timestamps and self._timestamps[0] <= cutoff:
             self._timestamps.popleft()
 
-    def acquire(self) -> bool:
+    @property
+    def max_calls(self) -> int:
+        return self._max_calls
+
+    def acquire(self, count: int = 1) -> bool:
+        """Take `count` slots (one per SMS recipient) if they are all free."""
         self._evict()
-        if len(self._timestamps) >= self._max_calls:
+        if len(self._timestamps) + count > self._max_calls:
             return False
-        self._timestamps.append(time.monotonic())
+        now = time.monotonic()
+        self._timestamps.extend([now] * count)
         return True
 
     @property
@@ -75,19 +110,20 @@ class SMSRateLimiter:
         self._evict()
         return max(0, self._max_calls - len(self._timestamps))
 
-    @property
-    def seconds_until_available(self) -> float:
+    def seconds_until_available(self, count: int = 1) -> float:
+        """Seconds until `count` slots are free."""
         self._evict()
-        if len(self._timestamps) < self._max_calls:
+        excess = len(self._timestamps) + count - self._max_calls
+        if excess <= 0:
             return 0.0
-        return max(0.0, self._timestamps[0] + self._window - time.monotonic())
+        return max(0.0, self._timestamps[excess - 1] + self._window - time.monotonic())
 
 
 # ──────────────────────────────────────────────
 # Queued message container
 # ──────────────────────────────────────────────
 class QueuedMessage:
-    __slots__ = ("message", "targets", "data", "queued_at")
+    __slots__ = ("data", "message", "queued_at", "targets")
 
     def __init__(self, message: str, targets: list[str], data: dict[str, Any]) -> None:
         self.message = message
@@ -118,6 +154,7 @@ class OVHSMSNotifyEntity(NotifyEntity):
         self._recipients: list[str] = entry_data.get("recipients", [])
 
         self._attr_unique_id = f"ovh_sms_notify_{self._service_name}"
+        self._failure_notification_id = f"ovh_sms_send_failed_{self._service_name}"
         self._attr_name = f"OVH SMS ({self._service_name})"
 
         self._strategy: str = entry_data.get(
@@ -151,48 +188,50 @@ class OVHSMSNotifyEntity(NotifyEntity):
 
     # ── NotifyEntity API ──────────────────────
 
-    async def async_send_message(
-        self, message: str, title: str | None = None, data: dict[str, Any] | None = None
+    async def async_send_message(self, message: str, title: str | None = None) -> None:
+        """Send an SMS to the default recipients (notify.send_message)."""
+        await self._async_dispatch(message, self._recipients, {})
+
+    async def async_send_sms(
+        self, message: str, recipients: list[str] | None = None, **options: Any
     ) -> None:
-        """Send an SMS via OVH API."""
-        data = data or {}
-        targets = data.get("target") or data.get("targets") or self._recipients
+        """Send an SMS with optional recipients and OVH options (ovh_sms.send_sms)."""
+        await self._async_dispatch(message, recipients or self._recipients, options)
 
+    async def _async_dispatch(
+        self, message: str, targets: list[str], options: dict[str, Any]
+    ) -> None:
+        """Apply rate limiting, then send now, queue or drop."""
         if not targets:
-            _LOGGER.error("OVH SMS: no recipients configured. Add phone numbers in the integration settings.")
-            return
-
-        if isinstance(targets, str):
-            targets = [targets]
-
-        valid_targets = [t for t in targets if _E164_RE.match(str(t))]
-        invalid_targets = [t for t in targets if not _E164_RE.match(str(t))]
-        if invalid_targets:
-            _LOGGER.warning("OVH SMS: %d recipient(s) ignored — not valid E.164 format", len(invalid_targets))
-        if not valid_targets:
-            _LOGGER.error("OVH SMS: no valid recipients after E.164 validation")
-            return
-        targets = valid_targets
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="no_recipients"
+            )
 
         if self._strategy == STRATEGY_DISABLED or self._limiter is None:
-            await self._hass.async_add_executor_job(
-                self._do_send, message, list(targets), data
-            )
+            await self._async_send(message, list(targets), options)
             return
 
-        if self._limiter.acquire():
-            await self._hass.async_add_executor_job(
-                self._do_send, message, list(targets), data
+        if len(targets) > self._limiter.max_calls:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="too_many_recipients",
+                translation_placeholders={
+                    "count": str(len(targets)),
+                    "max": str(self._limiter.max_calls),
+                },
             )
+
+        if self._limiter.acquire(len(targets)):
+            await self._async_send(message, list(targets), options)
             return
 
-        wait = self._limiter.seconds_until_available
+        wait = self._limiter.seconds_until_available(len(targets))
 
         if self._strategy == STRATEGY_DROP:
             _LOGGER.warning(
                 "OVH SMS [drop]: message dropped — rate limit reached. "
-                "Next slot in %.0fs. Recipients: %s | Message: %.80s",
-                wait, targets, message,
+                "Next slot in %.0fs.",
+                wait,
             )
             return
 
@@ -204,7 +243,7 @@ class OVHSMSNotifyEntity(NotifyEntity):
             return
 
         if self._queue is not None:
-            self._queue.append(QueuedMessage(message, list(targets), data))
+            self._queue.append(QueuedMessage(message, list(targets), options))
             _LOGGER.info(
                 "OVH SMS [queue]: message queued (%d/%d). Next slot in %.0fs.",
                 len(self._queue), self._queue_max, wait,
@@ -229,10 +268,11 @@ class OVHSMSNotifyEntity(NotifyEntity):
         while self._queue:
             if self._limiter is None:
                 break
-            wait = self._limiter.seconds_until_available
+            count = len(self._queue[0].targets)
+            wait = self._limiter.seconds_until_available(count)
             if wait > 0:
                 await asyncio.sleep(wait + 0.1)
-            if not self._limiter.acquire():
+            if not self._limiter.acquire(count):
                 continue
             msg = self._queue.popleft()
             age = time.monotonic() - msg.queued_at
@@ -240,51 +280,63 @@ class OVHSMSNotifyEntity(NotifyEntity):
                 "OVH SMS [queue]: sending queued message (waited %.0fs, %d remaining).",
                 age, len(self._queue),
             )
-            await self._hass.async_add_executor_job(
-                self._do_send, msg.message, msg.targets, msg.data
-            )
+            try:
+                await self._async_send(msg.message, msg.targets, msg.data)
+            except HomeAssistantError as err:
+                _LOGGER.error("OVH SMS [queue]: queued message not sent: %s", err)
 
     # ── OVH API call ─────────────────────────
 
-    def _do_send(self, message: str, targets: list[str], data: dict[str, Any]) -> None:
+    async def _async_send(
+        self, message: str, targets: list[str], options: dict[str, Any]
+    ) -> None:
         payload: dict[str, Any] = {
             "message": message,
             "receivers": targets,
-            "noStopClause": data.get(ATTR_NO_STOP_CLAUSE, True),
+            "noStopClause": options.get(ATTR_NO_STOP_CLAUSE, True),
         }
 
-        sender = data.get(ATTR_SENDER, self._default_sender)
+        sender = options.get(ATTR_SENDER, self._default_sender)
         if sender:
             payload["sender"] = sender
         else:
             payload["senderForResponse"] = True
 
-        if ATTR_PRIORITY in data:
-            payload["priority"] = data[ATTR_PRIORITY]
-        if ATTR_CODING in data:
-            payload["coding"] = data[ATTR_CODING]
+        if ATTR_PRIORITY in options:
+            payload["priority"] = options[ATTR_PRIORITY]
+        if ATTR_CODING in options:
+            payload["coding"] = options[ATTR_CODING]
 
         try:
-            result = self._client.post(f"/sms/{self._service_name}/jobs", **payload)
-            remaining = f", {self._limiter.remaining} slot(s) remaining" if self._limiter else ""
-            valid_count = len(result.get("validReceivers", []))
-            invalid_count = len(result.get("invalidReceivers", []))
-            _LOGGER.info(
-                "OVH SMS sent: %d credit(s) used, %d delivered, %d invalid%s",
-                result.get("totalCreditsRemoved", 0),
-                valid_count,
-                invalid_count,
-                remaining,
-            )
-            _LOGGER.debug(
-                "OVH SMS sent detail — IDs: %s, valid: %s, invalid: %s",
-                result.get("ids", []),
-                result.get("validReceivers", []),
-                result.get("invalidReceivers", []),
+            result = await self._hass.async_add_executor_job(
+                partial(self._client.post, f"/sms/{self._service_name}/jobs", **payload)
             )
         except ovh.exceptions.APIError as err:
             _LOGGER.debug("OVH SMS: send error detail: %s", err)
-            _LOGGER.error("OVH SMS: failed to send message — check your OVH account and API permissions")
-        except ovh.exceptions.InvalidResponse as err:
-            _LOGGER.debug("OVH SMS: invalid API response detail: %s", err)
-            _LOGGER.error("OVH SMS: invalid response from OVH API")
+            if is_out_of_credits(err):
+                async_update_out_of_credits_issue(self._hass, self._service_name, True)
+                key = "out_of_credits"
+            else:
+                key = "send_failed"
+            placeholders = {"service_name": self._service_name}
+            await async_notify(
+                self._hass, self._failure_notification_id, key, placeholders
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=key,
+                translation_placeholders=placeholders,
+            ) from err
+
+        persistent_notification.async_dismiss(self._hass, self._failure_notification_id)
+        async_update_out_of_credits_issue(self._hass, self._service_name, False)
+
+        remaining = f", {self._limiter.remaining} slot(s) remaining" if self._limiter else ""
+        _LOGGER.info(
+            "OVH SMS sent: %d credit(s) used, %d delivered, %d invalid%s",
+            result.get("totalCreditsRemoved", 0),
+            len(result.get("validReceivers", [])),
+            len(result.get("invalidReceivers", [])),
+            remaining,
+        )
+        _LOGGER.debug("OVH SMS sent — job IDs: %s", result.get("ids", []))

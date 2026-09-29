@@ -1,0 +1,403 @@
+"""Tests for the OVH SMS notify entity and send_sms action."""
+from __future__ import annotations
+
+import logging
+from unittest.mock import MagicMock, patch
+
+import ovh
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+import voluptuous as vol
+
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import issue_registry as ir
+
+from .conftest import NOTIFY_ENTITY, SERVICE_NAME
+from custom_components.ovh_sms.const import (
+    CONF_RATE_LIMIT_MAX,
+    CONF_RATE_LIMIT_STRATEGY,
+    CONF_RATE_LIMIT_WINDOW,
+    CONF_RECIPIENTS,
+    DOMAIN,
+    STRATEGY_DROP,
+    STRATEGY_QUEUE,
+)
+
+JOBS_PATH = f"/sms/{SERVICE_NAME}/jobs"
+NOTIFY_MODULE = "custom_components.ovh_sms.notify"
+
+
+async def _setup(hass: HomeAssistant, entry: MockConfigEntry, **data) -> None:
+    hass.config_entries.async_update_entry(entry, data={**entry.data, **data})
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+@pytest.fixture
+def entry(hass: HomeAssistant, config_entry: MockConfigEntry) -> MockConfigEntry:
+    config_entry.add_to_hass(hass)
+    return config_entry
+
+
+async def test_send_message_default_recipients(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """notify.send_message sends to the configured recipients."""
+    await _setup(hass, entry)
+    await hass.services.async_call(
+        "notify",
+        "send_message",
+        {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+        blocking=True,
+    )
+    mock_ovh_client.post.assert_called_once_with(
+        JOBS_PATH,
+        message="Hello",
+        receivers=["+33600000001", "+33600000002"],
+        noStopClause=True,
+        senderForResponse=True,
+    )
+
+
+async def test_send_message_without_recipients_raises(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """notify.send_message with no default recipients reports an error."""
+    await _setup(hass, entry, **{CONF_RECIPIENTS: []})
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    mock_ovh_client.post.assert_not_called()
+
+
+async def test_send_sms_action_with_options(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """ovh_sms.send_sms supports recipients and advanced OVH options."""
+    await _setup(hass, entry)
+    await hass.services.async_call(
+        DOMAIN,
+        "send_sms",
+        {
+            "entity_id": NOTIFY_ENTITY,
+            "message": "Alarm!",
+            "recipients": ["+33611111111"],
+            "sender": "MyHome",
+            "priority": "high",
+            "coding": "8bit",
+            "no_stop_clause": False,
+        },
+        blocking=True,
+    )
+    mock_ovh_client.post.assert_called_once_with(
+        JOBS_PATH,
+        message="Alarm!",
+        receivers=["+33611111111"],
+        noStopClause=False,
+        sender="MyHome",
+        priority="high",
+        coding="8bit",
+    )
+
+
+async def test_send_sms_action_defaults(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """ovh_sms.send_sms without recipients falls back to the defaults."""
+    await _setup(hass, entry)
+    await hass.services.async_call(
+        DOMAIN,
+        "send_sms",
+        {"entity_id": NOTIFY_ENTITY, "message": "Hi"},
+        blocking=True,
+    )
+    assert mock_ovh_client.post.call_args.kwargs["receivers"] == [
+        "+33600000001",
+        "+33600000002",
+    ]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"recipients": ["0612345678"]},
+        {"sender": "WayTooLongSender"},
+        {"coding": "unicode"},
+        {"priority": "urgent"},
+    ],
+)
+async def test_send_sms_action_rejects_invalid_input(
+    hass: HomeAssistant,
+    mock_ovh_client: MagicMock,
+    entry: MockConfigEntry,
+    bad: dict,
+) -> None:
+    """Invalid parameters are rejected before calling OVH."""
+    await _setup(hass, entry)
+    with pytest.raises((vol.Invalid, ServiceValidationError)):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_sms",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hi", **bad},
+            blocking=True,
+        )
+    mock_ovh_client.post.assert_not_called()
+
+
+async def test_send_api_error_raises(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """An OVH API failure surfaces as a HomeAssistantError to the caller."""
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError("boom")
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+
+
+async def test_send_not_enough_credits(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Running out of credits gives an explicit error message."""
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00) \nOVH-Query-ID: EU.ext-2.abc"
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "out_of_credits"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"out_of_credits_{SERVICE_NAME}")
+
+
+async def test_errors_are_translated(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Action errors carry a translation key resolved from strings.json."""
+    await _setup(hass, entry, **{CONF_RECIPIENTS: []})
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    assert exc_info.value.translation_domain == DOMAIN
+    assert exc_info.value.translation_key == "no_recipients"
+
+
+async def test_notification_uses_ha_language(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """The failure notification is written in the language of Home Assistant."""
+    hass.config.language = "fr"
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00)"
+    )
+    with (
+        patch(
+            "custom_components.ovh_sms.notifications.persistent_notification.async_create"
+        ) as create,
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    assert create.call_args.args[1] == (
+        f"Crédits SMS insuffisants sur {SERVICE_NAME} : rechargez votre compte "
+        "SMS dans l'espace client OVHcloud."
+    )
+
+
+async def test_send_failure_notification(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """A failed send raises a persistent notification, cleared by the next success."""
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00)"
+    )
+    with (
+        patch(
+            "custom_components.ovh_sms.notifications.persistent_notification.async_create"
+        ) as create,
+        patch(f"{NOTIFY_MODULE}.persistent_notification.async_dismiss") as dismiss,
+    ):
+        with pytest.raises(HomeAssistantError):
+            await hass.services.async_call(
+                "notify",
+                "send_message",
+                {"entity_id": NOTIFY_ENTITY, "message": "secret text"},
+                blocking=True,
+            )
+        create.assert_called_once()
+        text = create.call_args.args[1]
+        assert "Not enough SMS credits" in text
+        assert "secret text" not in text
+        assert "+33600000001" not in text
+        notification_id = create.call_args.kwargs["notification_id"]
+        assert notification_id == f"ovh_sms_send_failed_{SERVICE_NAME}"
+
+        mock_ovh_client.post.side_effect = None
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+        dismiss.assert_called_once_with(hass, notification_id)
+
+
+async def test_rate_limit_drop_does_not_log_pii(
+    hass: HomeAssistant,
+    mock_ovh_client: MagicMock,
+    entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Dropped messages are not sent and their content never reaches INFO+ logs."""
+    await _setup(
+        hass,
+        entry,
+        **{
+            CONF_RATE_LIMIT_STRATEGY: STRATEGY_DROP,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
+            CONF_RATE_LIMIT_WINDOW: 60,
+        },
+    )
+    for text in ("first", "secret second"):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": text},
+            blocking=True,
+        )
+    assert mock_ovh_client.post.call_count == 1
+    visible = "\n".join(r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)
+    assert "dropped" in visible
+    assert "secret second" not in visible
+    assert "+33600000001" not in visible
+
+
+async def test_rate_limit_counts_recipients(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Each recipient uses one slot: many recipients cannot bypass the limit."""
+    await _setup(
+        hass,
+        entry,
+        **{
+            CONF_RATE_LIMIT_STRATEGY: STRATEGY_DROP,
+            CONF_RATE_LIMIT_MAX: 3,
+            CONF_RATE_LIMIT_WINDOW: 60,
+        },
+    )
+    two = ["+33611111111", "+33622222222"]
+    for _ in range(2):
+        await hass.services.async_call(
+            DOMAIN,
+            "send_sms",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hi", "recipients": two},
+            blocking=True,
+        )
+    assert mock_ovh_client.post.call_count == 1  # 2 + 2 > 3: second one dropped
+
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            "send_sms",
+            {
+                "entity_id": NOTIFY_ENTITY,
+                "message": "Hi",
+                "recipients": [f"+3361111111{i}" for i in range(4)],
+            },
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "too_many_recipients"
+    assert mock_ovh_client.post.call_count == 1
+
+
+async def test_debug_logs_do_not_contain_phone_numbers(
+    hass: HomeAssistant,
+    mock_ovh_client: MagicMock,
+    entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Even DEBUG logs (often pasted in issues) do not contain phone numbers."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.ovh_sms")
+    await _setup(hass, entry)
+    await hass.services.async_call(
+        DOMAIN,
+        "send_sms",
+        {"entity_id": NOTIFY_ENTITY, "message": "Hi", "recipients": ["+33612345678"]},
+        blocking=True,
+    )
+    assert "+33612345678" not in caplog.text
+    assert "+33600000001" not in caplog.text
+
+
+async def test_rate_limit_queue_sends_later(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Queued messages are sent once the window frees up."""
+    await _setup(
+        hass,
+        entry,
+        **{
+            CONF_RATE_LIMIT_STRATEGY: STRATEGY_QUEUE,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
+            CONF_RATE_LIMIT_WINDOW: 1,
+        },
+    )
+    for text in ("one", "two"):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": text},
+            blocking=True,
+        )
+    assert mock_ovh_client.post.call_count == 1
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert mock_ovh_client.post.call_count == 2
+    assert mock_ovh_client.post.call_args.kwargs["message"] == "two"
+
+
+async def test_unload_cancels_queue(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Unloading the entry does not leave the queue task running."""
+    await _setup(
+        hass,
+        entry,
+        **{
+            CONF_RATE_LIMIT_STRATEGY: STRATEGY_QUEUE,
+            CONF_RATE_LIMIT_MAX: 2,  # the 2 default recipients = 1 message
+            CONF_RATE_LIMIT_WINDOW: 3600,
+        },
+    )
+    for text in ("one", "two"):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": text},
+            blocking=True,
+        )
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert mock_ovh_client.post.call_count == 1

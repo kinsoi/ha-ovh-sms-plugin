@@ -53,7 +53,7 @@
       },
       "validation_failed": {
         "title": "OVH SMS — Échec de la validation",
-        "description": "Impossible de valider votre configuration :\n\n**{error_detail}**\n\nCela peut arriver si vos clés sont incorrectes, si le nom du service n'existe pas, ou si l'API OVH est temporairement inaccessible.",
+        "description": "Impossible de valider votre configuration (voir l'erreur ci-dessus).\n\nCela peut arriver si vos clés sont incorrectes, si le nom du service n'existe pas, ou si l'API OVH est temporairement injoignable.",
         "data": {
           "action": "Que souhaitez-vous faire ?"
         }
@@ -158,6 +158,9 @@
       "unknown": "Erreur inattendue.",
       "already_configured": "Ce service SMS est déjà configuré dans une autre entrée.",
       "not_enough_credits": "Crédits SMS insuffisants. Rechargez votre compte SMS dans l'espace client OVHcloud."
+    },
+    "abort": {
+      "test_sent": "SMS de test envoyé à {sent} destinataire(s). Numéros refusés : {invalid}."
     }
   },
   "services": {
@@ -196,6 +199,29 @@
     "out_of_credits": {
       "title": "OVH SMS : plus de crédits sur {service_name}",
       "description": "Le compte SMS OVHcloud **{service_name}** n'a plus de crédits : les notifications SMS ne sont pas envoyées.\n\nRechargez le compte dans l'espace client OVHcloud (Télécom → SMS → {service_name}).\n\nCette alerte disparaît automatiquement dès que des crédits sont disponibles (vérification toutes les 30 minutes, ou au prochain SMS envoyé avec succès)."
+    }
+  },
+  "exceptions": {
+    "no_recipients": {
+      "message": "Aucun destinataire : définissez des destinataires par défaut dans les options de l'intégration, ou passez `recipients` à l'action OVH SMS : Envoyer un SMS."
+    },
+    "out_of_credits": {
+      "message": "Crédits SMS insuffisants sur {service_name} : rechargez votre compte SMS dans l'espace client OVHcloud."
+    },
+    "send_failed": {
+      "message": "Le SMS n'a pas pu être envoyé par {service_name} : vérifiez votre compte OVH, vos crédits et les droits de l'API."
+    },
+    "auth_failed": {
+      "message": "Échec de l'authentification à l'API OVH : vérifiez vos identifiants et les droits du jeton."
+    },
+    "cannot_connect": {
+      "message": "L'API OVH est injoignable, une nouvelle tentative aura lieu."
+    },
+    "service_not_found": {
+      "message": "Service SMS {service_name} introuvable : vérifiez le nom du service dans l'espace client OVHcloud."
+    },
+    "no_default_recipients": {
+      "message": "Aucun destinataire par défaut pour {service_name} : les SMS ne seront envoyés qu'avec l'action OVH SMS : Envoyer un SMS et son champ recipients."
     }
   }
 }

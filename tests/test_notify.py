@@ -172,14 +172,58 @@ async def test_send_not_enough_credits(
     mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
         "Not enough credits (left: -12.00) \nOVH-Query-ID: EU.ext-2.abc"
     )
-    with pytest.raises(HomeAssistantError, match="Not enough SMS credits"):
+    with pytest.raises(HomeAssistantError) as exc_info:
         await hass.services.async_call(
             "notify",
             "send_message",
             {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "out_of_credits"
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"out_of_credits_{SERVICE_NAME}")
+
+
+async def test_errors_are_translated(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Action errors carry a translation key resolved from strings.json."""
+    await _setup(hass, entry, **{CONF_RECIPIENTS: []})
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    assert exc_info.value.translation_domain == DOMAIN
+    assert exc_info.value.translation_key == "no_recipients"
+
+
+async def test_notification_uses_ha_language(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """The failure notification is written in the language of Home Assistant."""
+    hass.config.language = "fr"
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00)"
+    )
+    with (
+        patch(
+            "custom_components.ovh_sms.notifications.persistent_notification.async_create"
+        ) as create,
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+    assert create.call_args.args[1] == (
+        f"Crédits SMS insuffisants sur {SERVICE_NAME} : rechargez votre compte "
+        "SMS dans l'espace client OVHcloud."
+    )
 
 
 async def test_send_failure_notification(
@@ -191,7 +235,9 @@ async def test_send_failure_notification(
         "Not enough credits (left: -12.00)"
     )
     with (
-        patch(f"{NOTIFY_MODULE}.persistent_notification.async_create") as create,
+        patch(
+            "custom_components.ovh_sms.notifications.persistent_notification.async_create"
+        ) as create,
         patch(f"{NOTIFY_MODULE}.persistent_notification.async_dismiss") as dismiss,
     ):
         with pytest.raises(HomeAssistantError):

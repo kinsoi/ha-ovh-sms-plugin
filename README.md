@@ -1,10 +1,12 @@
-# OVH SMS for Home Assistant
+# OVH SMS for Home Assistant (OVHcloud SMS notifications)
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/kinsoi/ha-ovh-sms-plugin.svg)](https://github.com/kinsoi/ha-ovh-sms-plugin/releases)
 [![HA version](https://img.shields.io/badge/Home%20Assistant-2024.5%2B-blue)](https://www.home-assistant.io/)
 
-Send SMS notifications via the [OVHcloud SMS API](https://api.ovh.com/console/#/sms) from Home Assistant.
+**OVH SMS** is a Home Assistant custom integration (installable with HACS) that sends **SMS notifications through the OVHcloud SMS API** (`/sms/{serviceName}/jobs`). Use it to receive text messages from your automations — alarm, intrusion, water leak, power outage, door left open — on any mobile phone, without relying on an internet messaging app.
+
+It works with an [OVHcloud SMS account](https://www.ovhcloud.com/en/sms/) (formerly OVH Telecom SMS) in the **EU region** (`ovh-eu` API endpoint).
 
 ## Features
 
@@ -15,7 +17,8 @@ Send SMS notifications via the [OVHcloud SMS API](https://api.ovh.com/console/#/
 - **Configurable via UI** — no YAML required
 - **Multiple recipients** per message
 - **Custom sender ID** support
-- **Multilingual UI** — English & French
+- **Clear error reporting** — failed sends show up in the automation trace, as a Home Assistant notification, and as a **Repairs** alert when your SMS credits run out
+- **Multilingual UI** — English & French (setup, options, actions, errors and notifications)
 
 ## Installation
 
@@ -46,6 +49,8 @@ Copy the `custom_components/ovh_sms` folder into your `config/custom_components/
 3. Set **Validity** to **Unlimited**
 4. Note the 3 keys: Application Key, Application Secret, Consumer Key
 5. Find your **service name** in OVH Manager → Telecom → SMS (e.g. `sms-xx12345-1`)
+
+A custom **sender** (alphanumeric, max 11 characters) must first be created and validated by OVHcloud in the OVH Manager (Telecom → SMS → your service → Senders). Leave the sender empty to use an OVH short number instead.
 
 ## Configuration
 
@@ -106,7 +111,7 @@ data:
   coding: "8bit"            # 7bit (GSM, 160 chars) | 8bit (Unicode, 70 chars)
 ```
 
-Phone numbers must use the E.164 format (`+` then country code and number). Invalid input is rejected before anything is sent, and OVH API failures are reported as an error of the action, so they show up in the automation trace.
+Phone numbers must use the E.164 format (`+` then country code and number). Invalid input is rejected before anything is sent.
 
 ### Automation example — intrusion alert
 
@@ -153,7 +158,7 @@ Go to **Settings → Devices & Services → OVH SMS → Configure**:
 |--------|-------------|
 | API credentials & sender | Update keys, service name, recipients or sender |
 | Rate limiting | Adjust throttling strategy |
-| Send a test SMS | Send a test to your configured recipients |
+| Send a test SMS | Send a test to your configured recipients; the result is shown in the dialog |
 | 📖 How to use | Usage guide with your entity ID and YAML examples |
 
 ## Rate Limiting
@@ -163,6 +168,26 @@ Go to **Settings → Devices & Services → OVH SMS → Configure**:
 | `drop` (default) | Excess messages are discarded | Repetitive alerts (motion, doors) |
 | `queue` | Excess messages wait in queue | Critical notifications (alarm, leak) |
 | `disabled` | No throttling | You manage rate limiting elsewhere |
+
+## Errors, notifications and repairs
+
+| Situation | What you see |
+|-----------|--------------|
+| An SMS cannot be sent (OVH error, no credits…) | The action fails with a clear message (visible in the automation **trace**), and a notification appears in **Notifications**. It is replaced, not stacked, and removed after the next successful SMS |
+| The SMS account has no credits left | A **Settings → Repairs** alert, cleared automatically once credits are available (checked every 30 minutes, or after the next successful SMS) |
+| Invalid API keys or missing token rights | The integration shows a setup error; update the keys in **Configure → API credentials** |
+| OVH API unreachable at startup | Home Assistant retries the setup automatically |
+| Message dropped by the rate limiter | A warning in the logs (no phone number or message content is logged) |
+
+To troubleshoot, enable debug logs:
+
+```yaml
+logger:
+  logs:
+    custom_components.ovh_sms: debug
+```
+
+Debug logs include the OVH error details and the recipient numbers; do not share them publicly without removing personal data.
 
 ## YAML configuration (legacy)
 

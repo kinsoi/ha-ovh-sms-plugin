@@ -8,7 +8,6 @@ from typing import Any
 import ovh
 import voluptuous as vol
 
-from homeassistant.components import persistent_notification
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -46,6 +45,7 @@ from .const import (
     STRATEGY_DROP,
     STRATEGY_QUEUE,
 )
+from .notifications import async_notify
 
 _LOGGER = logging.getLogger(__name__)
 _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
@@ -195,7 +195,7 @@ class OVHSMSConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await validate_input(self.hass, user_input)
             except (CannotConnect, InvalidAuth, ServiceNotFound) as err:
-                self._validation_error = str(err)
+                self._validation_error = err.error_key
                 self._user_data = user_input
                 return await self.async_step_validation_failed()
             except Exception:
@@ -243,7 +243,7 @@ class OVHSMSConfigFlow(ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
-            description_placeholders={"error_detail": self._validation_error},
+            errors={"base": self._validation_error},
         )
 
     # ── Step 2: Rate limiting ─────────────────
@@ -401,13 +401,11 @@ class OVHSMSOptionsFlow(OptionsFlow):
                         self._config_entry.entry_id
                     )
                     if not new_data[CONF_RECIPIENTS]:
-                        persistent_notification.async_create(
+                        await async_notify(
                             self.hass,
-                            "⚠️ No default recipients configured.\n\n"
-                            "SMS will only be sent with the `ovh_sms.send_sms` "
-                            "action and its `recipients` field.",
-                            title="OVH SMS — No recipients",
-                            notification_id="ovh_sms_no_recipients",
+                            "ovh_sms_no_recipients",
+                            "no_default_recipients",
+                            {"service_name": merged[CONF_SERVICE_NAME]},
                         )
                     return self.async_create_entry(data={})
 
@@ -560,16 +558,13 @@ class OVHSMSOptionsFlow(OptionsFlow):
                     len(valid), len(invalid),
                 )
                 _LOGGER.debug("OVH SMS test detail — valid: %s, invalid: %s", valid, invalid)
-                notif_msg = f"✅ SMS sent to {len(valid)} recipient(s)"
-                if invalid:
-                    notif_msg += f"\n❌ {len(invalid)} invalid number(s) — not E.164 format"
-                persistent_notification.async_create(
-                    self.hass,
-                    notif_msg,
-                    title="OVH SMS — Test",
-                    notification_id="ovh_sms_test_result",
+                return self.async_abort(
+                    reason="test_sent",
+                    description_placeholders={
+                        "sent": str(len(valid)),
+                        "invalid": str(len(invalid)),
+                    },
                 )
-                return self.async_create_entry(data={})
             except ovh.exceptions.APIError as err:
                 _LOGGER.debug("OVH SMS test error detail: %s", err)
                 if is_out_of_credits(err):
@@ -599,10 +594,16 @@ class OVHSMSOptionsFlow(OptionsFlow):
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
 
+    error_key = "cannot_connect"
+
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
 
+    error_key = "invalid_auth"
+
 
 class ServiceNotFound(HomeAssistantError):
     """Error to indicate the SMS service was not found."""
+
+    error_key = "service_not_found"

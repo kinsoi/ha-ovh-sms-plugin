@@ -215,7 +215,7 @@ async def test_options_credentials_service_already_used(
 @pytest.mark.parametrize(
     ("side_effect", "expected"),
     [
-        (None, FlowResultType.CREATE_ENTRY),
+        (None, FlowResultType.ABORT),
         (ovh.exceptions.APIError("boom"), FlowResultType.FORM),
         (ovh.exceptions.InvalidResponse("garbage"), FlowResultType.FORM),
         (
@@ -243,6 +243,9 @@ async def test_options_test_sms(
         result["flow_id"], {"message": "ping"}
     )
     assert result["type"] is expected
+    if expected is FlowResultType.ABORT:
+        assert result["reason"] == "test_sent"
+        assert result["description_placeholders"] == {"sent": "1", "invalid": "0"}
     if expected is FlowResultType.FORM:
         expected_error = (
             "not_enough_credits" if "credits" in str(side_effect) else "test_failed"

@@ -139,14 +139,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.debug("OVH SMS: API error detail: %s", err)
             if is_auth_error(err):
                 raise ConfigEntryError(
-                    "OVH API authentication failed — check your credentials and API rights"
+                    translation_domain=DOMAIN, translation_key="auth_failed"
                 ) from err
-            raise ConfigEntryNotReady("OVH API is unreachable, will retry") from err
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN, translation_key="cannot_connect"
+            ) from err
 
         if conf[CONF_SERVICE_NAME] not in sms_accounts:
             raise ConfigEntryError(
-                f"SMS service '{conf[CONF_SERVICE_NAME]}' not found — "
-                "check your service name in OVH Manager"
+                translation_domain=DOMAIN,
+                translation_key="service_not_found",
+                translation_placeholders={"service_name": conf[CONF_SERVICE_NAME]},
             )
     else:
         _LOGGER.warning(

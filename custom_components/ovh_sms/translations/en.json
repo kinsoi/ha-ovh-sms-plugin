@@ -53,7 +53,7 @@
       },
       "validation_failed": {
         "title": "OVH SMS — Validation Failed",
-        "description": "Could not validate your configuration:\n\n**{error_detail}**\n\nThis can happen if your keys are wrong, the service name doesn't exist, or OVH API is temporarily unreachable.",
+        "description": "Could not validate your configuration (see the error above).\n\nThis can happen if your keys are wrong, the service name doesn't exist, or the OVH API is temporarily unreachable.",
         "data": {
           "action": "What would you like to do?"
         }
@@ -158,6 +158,9 @@
       "unknown": "Unexpected error.",
       "already_configured": "This SMS service is already configured in another entry.",
       "not_enough_credits": "Not enough SMS credits. Top up your SMS account in the OVHcloud Manager."
+    },
+    "abort": {
+      "test_sent": "Test SMS sent to {sent} recipient(s). Rejected numbers: {invalid}."
     }
   },
   "services": {
@@ -196,6 +199,29 @@
     "out_of_credits": {
       "title": "OVH SMS: no credits left on {service_name}",
       "description": "The OVHcloud SMS account **{service_name}** has no credits left, so SMS notifications are not being sent.\n\nTop up the account in the OVHcloud Manager (Telecom → SMS → {service_name}).\n\nThis alert disappears automatically once credits are available again (checked every 30 minutes, or at the next successful SMS)."
+    }
+  },
+  "exceptions": {
+    "no_recipients": {
+      "message": "No recipients: set default recipients in the integration options, or pass `recipients` to the OVH SMS: Send SMS action."
+    },
+    "out_of_credits": {
+      "message": "Not enough SMS credits on {service_name}: top up your SMS account in the OVHcloud Manager."
+    },
+    "send_failed": {
+      "message": "The SMS could not be sent by {service_name}: check your OVH account, credits and API permissions."
+    },
+    "auth_failed": {
+      "message": "OVH API authentication failed: check your credentials and the token access rules."
+    },
+    "cannot_connect": {
+      "message": "The OVH API is unreachable, setup will be retried."
+    },
+    "service_not_found": {
+      "message": "SMS service {service_name} not found: check the service name in the OVHcloud Manager."
+    },
+    "no_default_recipients": {
+      "message": "No default recipients configured for {service_name}: SMS will only be sent with the OVH SMS: Send SMS action and its recipients field."
     }
   }
 }

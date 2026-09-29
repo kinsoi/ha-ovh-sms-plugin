@@ -40,6 +40,7 @@ from .const import (
     STRATEGY_QUEUE,
 )
 from .issues import async_update_out_of_credits_issue
+from .notifications import async_notify
 
 _LOGGER = logging.getLogger(__name__)
 _E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
@@ -196,8 +197,7 @@ class OVHSMSNotifyEntity(NotifyEntity):
         """Apply rate limiting, then send now, queue or drop."""
         if not targets:
             raise ServiceValidationError(
-                "No recipients: configure default recipients in the integration "
-                "options or pass `recipients` to the ovh_sms.send_sms action"
+                translation_domain=DOMAIN, translation_key="no_recipients"
             )
 
         if self._strategy == STRATEGY_DISABLED or self._limiter is None:
@@ -297,22 +297,18 @@ class OVHSMSNotifyEntity(NotifyEntity):
             _LOGGER.debug("OVH SMS: send error detail: %s", err)
             if is_out_of_credits(err):
                 async_update_out_of_credits_issue(self._hass, self._service_name, True)
-                reason = (
-                    "Not enough SMS credits — top up your SMS account "
-                    "in the OVHcloud Manager"
-                )
+                key = "out_of_credits"
             else:
-                reason = (
-                    "failed to send message — check your OVH account, "
-                    "credits and API permissions"
-                )
-            persistent_notification.async_create(
-                self._hass,
-                f"An SMS could not be sent: {reason}.",
-                title=f"OVH SMS — send failed ({self._service_name})",
-                notification_id=self._failure_notification_id,
+                key = "send_failed"
+            placeholders = {"service_name": self._service_name}
+            await async_notify(
+                self._hass, self._failure_notification_id, key, placeholders
             )
-            raise HomeAssistantError(f"OVH SMS: {reason}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=key,
+                translation_placeholders=placeholders,
+            ) from err
 
         persistent_notification.async_dismiss(self._hass, self._failure_notification_id)
         async_update_out_of_credits_issue(self._hass, self._service_name, False)

@@ -218,6 +218,10 @@ async def test_options_credentials_service_already_used(
         (None, FlowResultType.CREATE_ENTRY),
         (ovh.exceptions.APIError("boom"), FlowResultType.FORM),
         (ovh.exceptions.InvalidResponse("garbage"), FlowResultType.FORM),
+        (
+            ovh.exceptions.APIError("Not enough credits (left: -12.00)"),
+            FlowResultType.FORM,
+        ),
     ],
 )
 async def test_options_test_sms(
@@ -240,7 +244,10 @@ async def test_options_test_sms(
     )
     assert result["type"] is expected
     if expected is FlowResultType.FORM:
-        assert result["errors"] == {"base": "test_failed"}
+        expected_error = (
+            "not_enough_credits" if "credits" in str(side_effect) else "test_failed"
+        )
+        assert result["errors"] == {"base": expected_error}
     assert mock_ovh_client.post.call_args.kwargs["receivers"] == [
         "+33600000001",
         "+33600000002",

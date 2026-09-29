@@ -162,6 +162,23 @@ async def test_send_api_error_raises(
         )
 
 
+async def test_send_not_enough_credits(
+    hass: HomeAssistant, mock_ovh_client: MagicMock, entry: MockConfigEntry
+) -> None:
+    """Running out of credits gives an explicit error message."""
+    await _setup(hass, entry)
+    mock_ovh_client.post.side_effect = ovh.exceptions.APIError(
+        "Not enough credits (left: -12.00) \nOVH-Query-ID: EU.ext-2.abc"
+    )
+    with pytest.raises(HomeAssistantError, match="Not enough SMS credits"):
+        await hass.services.async_call(
+            "notify",
+            "send_message",
+            {"entity_id": NOTIFY_ENTITY, "message": "Hello"},
+            blocking=True,
+        )
+
+
 async def test_rate_limit_drop_does_not_log_pii(
     hass: HomeAssistant,
     mock_ovh_client: MagicMock,

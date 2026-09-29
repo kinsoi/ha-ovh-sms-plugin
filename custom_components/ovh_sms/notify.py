@@ -19,6 +19,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .api import is_out_of_credits
 from .const import (
     ATTR_CODING,
     ATTR_NO_STOP_CLAUSE,
@@ -291,6 +292,11 @@ class OVHSMSNotifyEntity(NotifyEntity):
             )
         except ovh.exceptions.APIError as err:
             _LOGGER.debug("OVH SMS: send error detail: %s", err)
+            if is_out_of_credits(err):
+                raise HomeAssistantError(
+                    "OVH SMS: Not enough SMS credits — top up your SMS account "
+                    "in the OVHcloud Manager"
+                ) from err
             raise HomeAssistantError(
                 "OVH SMS: failed to send message — check your OVH account, "
                 "credits and API permissions"

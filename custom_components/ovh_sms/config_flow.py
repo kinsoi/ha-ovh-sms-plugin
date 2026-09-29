@@ -23,7 +23,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .api import is_auth_error
+from .api import is_auth_error, is_out_of_credits
 from .const import (
     CONF_APPLICATION_KEY,
     CONF_APPLICATION_SECRET,
@@ -572,8 +572,12 @@ class OVHSMSOptionsFlow(OptionsFlow):
                 return self.async_create_entry(data={})
             except ovh.exceptions.APIError as err:
                 _LOGGER.debug("OVH SMS test error detail: %s", err)
-                _LOGGER.error("OVH SMS test failed — check your credentials and OVH account")
-                errors["base"] = "test_failed"
+                if is_out_of_credits(err):
+                    _LOGGER.error("OVH SMS test failed — not enough SMS credits")
+                    errors["base"] = "not_enough_credits"
+                else:
+                    _LOGGER.error("OVH SMS test failed — check your credentials and OVH account")
+                    errors["base"] = "test_failed"
 
         return self.async_show_form(
             step_id="test_sms",

@@ -24,3 +24,8 @@ def is_auth_error(err: ovh.exceptions.APIError) -> bool:
         return True
     response = getattr(err, "response", None)
     return getattr(response, "status_code", None) in (401, 403)
+
+
+def is_out_of_credits(err: ovh.exceptions.APIError) -> bool:
+    """Return True if OVH refused the job because the account has no credits left."""
+    return "not enough credits" in str(err).lower()

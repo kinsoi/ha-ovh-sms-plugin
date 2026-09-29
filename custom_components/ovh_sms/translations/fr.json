@@ -156,7 +156,8 @@
       "invalid_recipients": "Numéros invalides — utilisez le format E.164 : +33612345678",
       "test_failed": "Échec de l'envoi du SMS. Vérifiez vos identifiants et votre compte OVH.",
       "unknown": "Erreur inattendue.",
-      "already_configured": "Ce service SMS est déjà configuré dans une autre entrée."
+      "already_configured": "Ce service SMS est déjà configuré dans une autre entrée.",
+      "not_enough_credits": "Crédits SMS insuffisants. Rechargez votre compte SMS dans l'espace client OVHcloud."
     }
   },
   "services": {
